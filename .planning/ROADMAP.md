@@ -66,10 +66,14 @@ Plans:
   3. User can start/stop the bot and see current status and error alerts
   4. User can configure strategy parameters (funding thresholds, risk limits, pair filters) via the dashboard
   5. User can view trade history and performance analytics (Sharpe ratio, max drawdown, win rate)
-**Plans**: TBD
+**Plans**: 5 plans
 
 Plans:
-- [ ] TBD during plan-phase
+- [ ] 03-01-PLAN.md -- Dashboard foundation: FastAPI app factory, WebSocket hub, base template
+- [ ] 03-02-PLAN.md -- Data layer extensions: trade history retention, RuntimeConfig, orchestrator restart
+- [ ] 03-03-PLAN.md -- Performance analytics: Sharpe ratio, max drawdown, win rate (TDD)
+- [ ] 03-04-PLAN.md -- Routes and templates: all 7 DASH panels, API endpoints, action handlers
+- [ ] 03-05-PLAN.md -- Integration: main.py lifespan wiring, uvicorn server, human verification
 
 ## Progress
 
@@ -80,4 +84,4 @@ Phases execute in numeric order: 1 → 2 → 3
 |-------|----------------|--------|-----------|
 | 1. Core Trading Engine | 5/5 | ✓ Complete | 2026-02-11 |
 | 2. Multi-Pair Intelligence | 4/4 | ✓ Complete | 2026-02-11 |
-| 3. Dashboard & Analytics | 0/TBD | Not started | - |
+| 3. Dashboard & Analytics | 0/5 | Not started | - |
