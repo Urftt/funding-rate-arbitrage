@@ -46,6 +46,9 @@ Recent decisions affecting current work:
 - [01-01] All monetary fields use Decimal -- enforced via type annotations on all dataclasses
 - [01-01] structlog with contextvars for async-safe logging (not threadlocal)
 - [01-01] Separate BaseSettings subclasses with env_prefix per domain (BYBIT_, TRADING_, FEES_)
+- [01-02] REST polling (30s) for funding rates instead of WebSocket -- rates change every 8h, simplifies Phase 1
+- [01-02] TickerService as shared price cache decouples FundingMonitor from PaperExecutor consumers
+- [01-02] InstrumentInfo not frozen -- allows mutable usage patterns downstream
 - [01-03] FeeCalculator.is_profitable uses entry_price for exit fee estimate (conservative)
 - [01-03] PositionSizer uses max(spot_step, perp_step) for cross-leg quantity alignment
 - [01-03] Funding payment sign convention: positive = income, negative = expense (Bybit: positive rate = longs pay shorts)
@@ -55,11 +58,6 @@ Recent decisions affecting current work:
 None yet.
 
 ### Blockers/Concerns
-
-**Phase 1 readiness:**
-- Bybit API specifics need verification (rate limits, websocket specs, funding rate endpoints, authentication flows)
-- Funding rate sign convention must be confirmed (positive = longs pay shorts?)
-- Choose between pybit vs ccxt for Bybit integration (verify current 2026 support status)
 
 **Phase 2 readiness:**
 - Bybit fee structures need verification (current maker/taker percentages, spot vs perp differences)
