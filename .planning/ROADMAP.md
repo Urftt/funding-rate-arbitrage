@@ -28,10 +28,14 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Bot tracks simulated P&L including fees and funding payments across paper trading sessions
   4. Bot validates delta neutrality continuously (spot quantity matches perp quantity within tolerance)
   5. Paper trading execution uses identical code path as real trading (swappable executor pattern)
-**Plans**: TBD
+**Plans**: 5 plans
 
 Plans:
-- [ ] TBD during plan-phase
+- [ ] 01-01-PLAN.md -- Foundation: project scaffold, config, models, logging
+- [ ] 01-02-PLAN.md -- Exchange client (Bybit via ccxt) and funding rate monitor
+- [ ] 01-03-PLAN.md -- Fee calculator and position sizing (TDD)
+- [ ] 01-04-PLAN.md -- Executor pattern, paper executor, position manager, delta validator
+- [ ] 01-05-PLAN.md -- P&L tracker and orchestrator integration
 
 ### Phase 2: Multi-Pair Intelligence
 **Goal**: Bot autonomously scans all pairs, ranks opportunities, executes profitable trades, and enforces comprehensive risk limits.
@@ -71,6 +75,6 @@ Phases execute in numeric order: 1 → 2 → 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Core Trading Engine | 0/TBD | Not started | - |
+| 1. Core Trading Engine | 0/5 | Planned | - |
 | 2. Multi-Pair Intelligence | 0/TBD | Not started | - |
 | 3. Dashboard & Analytics | 0/TBD | Not started | - |
