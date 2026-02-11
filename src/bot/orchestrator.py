@@ -23,7 +23,7 @@ import asyncio
 import time
 from decimal import Decimal
 
-from bot.config import AppSettings
+from bot.config import AppSettings, RuntimeConfig
 from bot.exchange.client import ExchangeClient
 from bot.logging import get_logger
 from bot.market_data.funding_monitor import FundingMonitor
@@ -93,6 +93,7 @@ class Orchestrator:
         self._running = False
         self._last_funding_check: float = 0.0
         self._cycle_lock = asyncio.Lock()
+        self._runtime_config: RuntimeConfig | None = None
 
     async def start(self) -> None:
         """Start the orchestrator: begin funding monitor, then run main loop.
@@ -154,12 +155,16 @@ class Orchestrator:
         """One iteration of the autonomous trading loop.
 
         Implements the scan-rank-decide-execute pattern:
+        0. APPLY: Runtime config overrides (if set by dashboard)
         1. SCAN: Get all funding rates from monitor cache
         2. RANK: Score each pair by net yield after fees
         3. DECIDE & EXECUTE: Close unprofitable, open profitable
         4. MONITOR: Check margin ratio
         5. LOG: Position status
         """
+        # 0. APPLY: Runtime config overrides from dashboard
+        self._apply_runtime_config()
+
         # 1. SCAN: Get all funding rates from monitor cache
         all_rates = self._funding_monitor.get_all_funding_rates()
         if not all_rates:
@@ -429,3 +434,67 @@ class Orchestrator:
             controller: The EmergencyController instance.
         """
         self._emergency_controller = controller
+
+    @property
+    def is_running(self) -> bool:
+        """Whether the orchestrator main loop is active."""
+        return self._running
+
+    @property
+    def runtime_config(self) -> RuntimeConfig | None:
+        """Current runtime config overlay, if set."""
+        return self._runtime_config
+
+    @runtime_config.setter
+    def runtime_config(self, config: RuntimeConfig) -> None:
+        self._runtime_config = config
+        logger.info("runtime_config_updated", config=str(config))
+
+    def _apply_runtime_config(self) -> None:
+        """Apply runtime config overrides to settings if set.
+
+        Called at the start of each autonomous cycle so dashboard changes
+        take effect on the next iteration without restarting.
+        """
+        rc = self._runtime_config
+        if rc is None:
+            return
+        if rc.min_funding_rate is not None:
+            self._settings.trading.min_funding_rate = rc.min_funding_rate
+        if rc.max_position_size_usd is not None:
+            self._settings.trading.max_position_size_usd = rc.max_position_size_usd
+        if rc.exit_funding_rate is not None:
+            self._settings.risk.exit_funding_rate = rc.exit_funding_rate
+        if rc.max_simultaneous_positions is not None:
+            self._settings.risk.max_simultaneous_positions = rc.max_simultaneous_positions
+        if rc.max_position_size_per_pair is not None:
+            self._settings.risk.max_position_size_per_pair = rc.max_position_size_per_pair
+        if rc.min_volume_24h is not None:
+            self._settings.risk.min_volume_24h = rc.min_volume_24h
+        if rc.scan_interval is not None:
+            self._settings.trading.scan_interval = rc.scan_interval
+
+    async def restart(self) -> None:
+        """Restart the orchestrator (start the run loop after being stopped).
+
+        Used by dashboard DASH-04 to start the bot after it has been stopped.
+        Does NOT close positions on stop (that's graceful shutdown behavior).
+        Restarts the funding monitor and main loop.
+        """
+        if self._running:
+            logger.info("orchestrator_restart_already_running")
+            return
+        logger.info("orchestrator_restarting")
+        await self._funding_monitor.start()
+        self._running = True
+        self._last_funding_check = time.time()
+        # Run loop as a background task so caller doesn't block
+        asyncio.create_task(self._run_loop_with_cleanup())
+
+    async def _run_loop_with_cleanup(self) -> None:
+        """Run loop wrapper that cleans up funding monitor on exit."""
+        try:
+            await self._run_loop()
+        finally:
+            await self._funding_monitor.stop()
+            logger.info("orchestrator_stopped")
