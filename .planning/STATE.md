@@ -5,33 +5,33 @@
 See: .planning/PROJECT.md (updated 2026-02-11)
 
 **Core value:** The bot correctly identifies funding rate opportunities and executes delta-neutral positions that collect funding payments without taking directional risk.
-**Current focus:** Phase 2 — Multi-Pair Intelligence OpportunityRanker and risk management
+**Current focus:** Phase 2 — Multi-Pair Intelligence risk engine and orchestrator V2
 
 ## Current Position
 
 Phase: 2 of 3 (Multi-Pair Intelligence)
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Plan Complete
-Last activity: 2026-02-11 — Completed 02-02-PLAN.md (OpportunityRanker Net Yield Scoring)
+Last activity: 2026-02-11 — Completed 02-03-PLAN.md (Risk Manager & Emergency Controller)
 
-Progress: [█████░░░░░] 50%
+Progress: [███████░░░] 75%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 7
+- Total plans completed: 8
 - Average duration: 4 min
-- Total execution time: 0.48 hours
+- Total execution time: 0.55 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01-core-trading-engine | 5/5 | 23 min | 5 min |
-| 02-multi-pair-intelligence | 2/4 | 6 min | 3 min |
+| 02-multi-pair-intelligence | 3/4 | 10 min | 3 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-03 (5 min), 01-04 (5 min), 01-05 (5 min), 02-01 (3 min), 02-02 (3 min)
+- Last 5 plans: 01-04 (5 min), 01-05 (5 min), 02-01 (3 min), 02-02 (3 min), 02-03 (4 min)
 - Trend: Consistent ~3-5 min/plan
 
 *Updated after each plan completion*
@@ -65,6 +65,9 @@ Recent decisions affecting current work:
 - [02-02] Net yield formula uses Decimal arithmetic exclusively -- no float conversions
 - [02-02] Spot symbol derived from markets dict base/quote fields, not string manipulation
 - [02-02] Inactive spot markets treated same as missing -- pair excluded from rankings
+- [02-03] RiskManager accepts optional paper_margin_fn callable instead of direct PaperExecutor dependency
+- [02-03] EmergencyController records P&L via pnl_tracker.record_close during emergency close
+- [02-03] Linear backoff (not exponential) for emergency close retries -- simplicity in emergency path
 
 ### Pending Todos
 
@@ -78,6 +81,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-11 - Plan 02-02 execution
-Stopped at: Completed 02-02-PLAN.md (OpportunityRanker Net Yield Scoring)
+Last session: 2026-02-11 - Plan 02-03 execution
+Stopped at: Completed 02-03-PLAN.md (Risk Manager & Emergency Controller)
 Resume file: None
