@@ -47,6 +47,9 @@ class PositionPnL:
     quantity: Decimal = Decimal("0")
     opened_at: float = 0.0
     closed_at: float | None = None
+    spot_exit_price: Decimal = Decimal("0")
+    perp_exit_price: Decimal = Decimal("0")
+    perp_symbol: str = ""
 
 
 class PnLTracker:
@@ -87,6 +90,7 @@ class PnLTracker:
             perp_entry_price=position.perp_entry_price,
             quantity=position.quantity,
             opened_at=position.opened_at,
+            perp_symbol=position.perp_symbol,
         )
         self._position_pnl[position.id] = pnl
 
@@ -119,6 +123,8 @@ class PnLTracker:
         """
         pnl = self._position_pnl[position_id]
         pnl.exit_fee = exit_fee
+        pnl.spot_exit_price = spot_exit_price
+        pnl.perp_exit_price = perp_exit_price
         pnl.closed_at = time.time()
 
         logger.info(
@@ -371,3 +377,33 @@ class PnLTracker:
             PositionPnL if tracked, None otherwise.
         """
         return self._position_pnl.get(position_id)
+
+    def get_closed_positions(self) -> list[PositionPnL]:
+        """Return closed positions sorted by close time (most recent first).
+
+        Used by DASH-03 trade history display.
+
+        Returns:
+            List of PositionPnL with closed_at set, sorted descending.
+        """
+        closed = [p for p in self._position_pnl.values() if p.closed_at is not None]
+        closed.sort(key=lambda p: p.closed_at, reverse=True)  # type: ignore[arg-type]
+        return closed
+
+    def get_open_position_pnls(self) -> list[PositionPnL]:
+        """Return P&L records for currently open positions.
+
+        Returns:
+            List of PositionPnL where closed_at is None.
+        """
+        return [p for p in self._position_pnl.values() if p.closed_at is None]
+
+    def get_all_position_pnls(self) -> list[PositionPnL]:
+        """Return all position P&L records (open and closed).
+
+        Used by analytics (Plan 03) for Sharpe ratio and drawdown calculations.
+
+        Returns:
+            List of all PositionPnL records.
+        """
+        return list(self._position_pnl.values())

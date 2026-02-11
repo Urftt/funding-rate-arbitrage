@@ -1,5 +1,6 @@
 """Configuration system using pydantic-settings with environment variable loading."""
 
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import Literal
 
@@ -57,6 +58,34 @@ class FeeSettings(BaseSettings):
     perp_maker: Decimal = Decimal("0.0002")  # 0.02%
 
 
+class DashboardSettings(BaseSettings):
+    """Dashboard server configuration."""
+
+    model_config = SettingsConfigDict(env_prefix="DASHBOARD_")
+
+    host: str = "0.0.0.0"
+    port: int = 8080
+    enabled: bool = True
+    update_interval: int = 5  # seconds between WebSocket pushes
+
+
+@dataclass
+class RuntimeConfig:
+    """Mutable runtime config overlay. Non-None fields override BaseSettings values.
+
+    Used by the dashboard to update strategy parameters without restarting.
+    Changes are applied at the start of each orchestrator cycle.
+    """
+
+    min_funding_rate: Decimal | None = None
+    max_position_size_usd: Decimal | None = None
+    exit_funding_rate: Decimal | None = None
+    max_simultaneous_positions: int | None = None
+    max_position_size_per_pair: Decimal | None = None
+    min_volume_24h: Decimal | None = None
+    scan_interval: int | None = None
+
+
 class AppSettings(BaseSettings):
     """Root application settings, composing all sub-settings."""
 
@@ -71,3 +100,4 @@ class AppSettings(BaseSettings):
     trading: TradingSettings = TradingSettings()
     fees: FeeSettings = FeeSettings()
     risk: RiskSettings = RiskSettings()
+    dashboard: DashboardSettings = DashboardSettings()
