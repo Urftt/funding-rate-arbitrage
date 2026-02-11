@@ -5,34 +5,34 @@
 See: .planning/PROJECT.md (updated 2026-02-11)
 
 **Core value:** The bot correctly identifies funding rate opportunities and executes delta-neutral positions that collect funding payments without taking directional risk.
-**Current focus:** Phase 2 — Multi-Pair Intelligence risk engine and orchestrator V2
+**Current focus:** Phase 2 complete — ready for Phase 3
 
 ## Current Position
 
-Phase: 2 of 3 (Multi-Pair Intelligence)
-Plan: 3 of 4
-Status: Plan Complete
-Last activity: 2026-02-11 — Completed 02-03-PLAN.md (Risk Manager & Emergency Controller)
+Phase: 2 of 3 (Multi-Pair Intelligence) -- COMPLETE
+Plan: 4 of 4
+Status: Phase Complete
+Last activity: 2026-02-11 — Completed 02-04-PLAN.md (Autonomous Orchestrator V2 & Full Wiring)
 
-Progress: [███████░░░] 75%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 8
+- Total plans completed: 9
 - Average duration: 4 min
-- Total execution time: 0.55 hours
+- Total execution time: 0.65 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01-core-trading-engine | 5/5 | 23 min | 5 min |
-| 02-multi-pair-intelligence | 3/4 | 10 min | 3 min |
+| 02-multi-pair-intelligence | 4/4 | 16 min | 4 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-04 (5 min), 01-05 (5 min), 02-01 (3 min), 02-02 (3 min), 02-03 (4 min)
-- Trend: Consistent ~3-5 min/plan
+- Last 5 plans: 01-05 (5 min), 02-01 (3 min), 02-02 (3 min), 02-03 (4 min), 02-04 (6 min)
+- Trend: Consistent ~3-6 min/plan
 
 *Updated after each plan completion*
 
@@ -68,6 +68,9 @@ Recent decisions affecting current work:
 - [02-03] RiskManager accepts optional paper_margin_fn callable instead of direct PaperExecutor dependency
 - [02-03] EmergencyController records P&L via pnl_tracker.record_close during emergency close
 - [02-03] Linear backoff (not exponential) for emergency close retries -- simplicity in emergency path
+- [02-04] Emergency controller injected post-construction via set_emergency_controller to resolve circular dependency
+- [02-04] asyncio.Lock for cycle lock (strict mutual exclusion, no overlapping autonomous cycles)
+- [02-04] Graceful stop closes all positions before setting _running=False
 
 ### Pending Todos
 
@@ -81,6 +84,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-11 - Plan 02-03 execution
-Stopped at: Completed 02-03-PLAN.md (Risk Manager & Emergency Controller)
+Last session: 2026-02-11 - Plan 02-04 execution
+Stopped at: Completed 02-04-PLAN.md (Autonomous Orchestrator V2 & Full Wiring) -- Phase 2 complete
 Resume file: None
