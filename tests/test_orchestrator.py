@@ -8,6 +8,12 @@ Tests verify:
 - get_status returns correct structure
 - PAPR-02: Orchestrator works identically with PaperExecutor and LiveExecutor
 - PAPR-02: Parameterized test proves identical behavior with both executors
+- Phase 2: Autonomous cycle opens positions when opportunity passes risk check
+- Phase 2: Autonomous cycle closes positions when rate drops below exit threshold
+- Phase 2: Autonomous cycle skips pairs rejected by risk manager
+- Phase 2: Margin critical triggers emergency controller
+- Phase 2: Graceful stop closes all open positions
+- Phase 2: Cycle lock prevents overlapping cycles
 """
 
 import asyncio
@@ -17,16 +23,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from bot.config import AppSettings, ExchangeSettings, FeeSettings, TradingSettings
+from bot.config import AppSettings, ExchangeSettings, FeeSettings, RiskSettings, TradingSettings
 from bot.exchange.client import ExchangeClient
 from bot.exchange.types import InstrumentInfo
 from bot.execution.executor import Executor
 from bot.execution.paper_executor import PaperExecutor
 from bot.logging import get_logger
 from bot.market_data.funding_monitor import FundingMonitor
+from bot.market_data.opportunity_ranker import OpportunityRanker
 from bot.market_data.ticker_service import TickerService
 from bot.models import (
     FundingRateData,
+    OpportunityScore,
     OrderRequest,
     OrderResult,
     OrderSide,
@@ -39,6 +47,8 @@ from bot.pnl.tracker import PnLTracker
 from bot.position.delta_validator import DeltaValidator
 from bot.position.manager import PositionManager
 from bot.position.sizing import PositionSizer
+from bot.risk.emergency import EmergencyController
+from bot.risk.manager import RiskManager
 
 
 @pytest.fixture
@@ -53,6 +63,7 @@ def settings() -> AppSettings:
         ),
         trading=TradingSettings(mode="paper"),
         fees=FeeSettings(),
+        risk=RiskSettings(),
     )
 
 
@@ -70,6 +81,7 @@ def mock_exchange_client() -> AsyncMock:
         qty_step=Decimal("0.001"),
         min_notional=Decimal("5"),
     )
+    client.get_markets.return_value = {}
     return client
 
 
@@ -118,6 +130,32 @@ def pnl_tracker(
 
 
 @pytest.fixture
+def mock_risk_manager() -> MagicMock:
+    """Mock RiskManager."""
+    rm = MagicMock(spec=RiskManager)
+    rm.check_can_open.return_value = (True, "")
+    rm.check_margin_ratio = AsyncMock(return_value=(Decimal("0.1"), False))
+    rm.is_margin_critical.return_value = False
+    return rm
+
+
+@pytest.fixture
+def mock_ranker() -> MagicMock:
+    """Mock OpportunityRanker."""
+    ranker = MagicMock(spec=OpportunityRanker)
+    ranker.rank_opportunities.return_value = []
+    return ranker
+
+
+@pytest.fixture
+def mock_emergency_controller() -> AsyncMock:
+    """Mock EmergencyController."""
+    ec = AsyncMock(spec=EmergencyController)
+    ec.triggered = False
+    return ec
+
+
+@pytest.fixture
 def orchestrator(
     settings: AppSettings,
     mock_exchange_client: AsyncMock,
@@ -127,6 +165,9 @@ def orchestrator(
     pnl_tracker: PnLTracker,
     delta_validator: DeltaValidator,
     fee_calculator: FeeCalculator,
+    mock_risk_manager: MagicMock,
+    mock_ranker: MagicMock,
+    mock_emergency_controller: AsyncMock,
 ) -> Orchestrator:
     """Orchestrator with mocked dependencies."""
     return Orchestrator(
@@ -138,6 +179,9 @@ def orchestrator(
         pnl_tracker=pnl_tracker,
         delta_validator=delta_validator,
         fee_calculator=fee_calculator,
+        risk_manager=mock_risk_manager,
+        ranker=mock_ranker,
+        emergency_controller=mock_emergency_controller,
     )
 
 
@@ -394,9 +438,391 @@ class TestGetStatus:
         assert "open_positions_count" in status
         assert "mode" in status
         assert "portfolio_summary" in status
+        assert "emergency_triggered" in status
         assert status["running"] is False
         assert status["open_positions_count"] == 0
         assert status["mode"] == "paper"
+        assert status["emergency_triggered"] is False
+
+
+# =============================================================================
+# Phase 2: Autonomous Cycle Tests
+# =============================================================================
+
+
+def _make_test_position(
+    position_id: str = "pos_1",
+    perp_symbol: str = "BTC/USDT:USDT",
+    spot_symbol: str = "BTC/USDT",
+) -> Position:
+    """Create a test position for autonomous cycle tests."""
+    return Position(
+        id=position_id,
+        spot_symbol=spot_symbol,
+        perp_symbol=perp_symbol,
+        side=PositionSide.SHORT,
+        quantity=Decimal("0.1"),
+        spot_entry_price=Decimal("50000"),
+        perp_entry_price=Decimal("50010"),
+        spot_order_id="s1",
+        perp_order_id="p1",
+        opened_at=time.time(),
+        entry_fee_total=Decimal("7.75"),
+    )
+
+
+def _make_test_opportunity(
+    spot_symbol: str = "ETH/USDT",
+    perp_symbol: str = "ETH/USDT:USDT",
+    passes_filters: bool = True,
+    annualized_yield: Decimal = Decimal("0.25"),
+) -> OpportunityScore:
+    """Create a test OpportunityScore for autonomous cycle tests."""
+    return OpportunityScore(
+        spot_symbol=spot_symbol,
+        perp_symbol=perp_symbol,
+        funding_rate=Decimal("0.0005"),
+        funding_interval_hours=8,
+        volume_24h=Decimal("5000000"),
+        net_yield_per_period=Decimal("0.000228"),
+        annualized_yield=annualized_yield,
+        passes_filters=passes_filters,
+    )
+
+
+class TestAutonomousCycleOpen:
+    """Tests for autonomous position opening."""
+
+    @pytest.mark.asyncio
+    async def test_opens_position_when_opportunity_passes_risk_check(
+        self,
+        orchestrator: Orchestrator,
+        mock_position_manager: AsyncMock,
+        mock_exchange_client: AsyncMock,
+        mock_ranker: MagicMock,
+        mock_risk_manager: MagicMock,
+        funding_monitor: FundingMonitor,
+    ) -> None:
+        """Autonomous cycle opens position when opportunity passes risk check."""
+        # Setup: funding rates available
+        funding_monitor._funding_rates["ETH/USDT:USDT"] = FundingRateData(
+            symbol="ETH/USDT:USDT",
+            rate=Decimal("0.0005"),
+            next_funding_time=0,
+            mark_price=Decimal("3000"),
+            volume_24h=Decimal("5000000"),
+        )
+
+        # Ranker returns an opportunity that passes filters
+        opp = _make_test_opportunity()
+        mock_ranker.rank_opportunities.return_value = [opp]
+
+        # Risk manager allows opening
+        mock_risk_manager.check_can_open.return_value = (True, "")
+
+        # Position manager returns a position on open
+        new_pos = _make_test_position(position_id="pos_eth", perp_symbol="ETH/USDT:USDT")
+        mock_position_manager.open_position.return_value = new_pos
+
+        await orchestrator._autonomous_cycle()
+
+        # Verify open_position was called (via position_manager)
+        mock_position_manager.open_position.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_skips_pairs_rejected_by_risk_manager(
+        self,
+        orchestrator: Orchestrator,
+        mock_position_manager: AsyncMock,
+        mock_ranker: MagicMock,
+        mock_risk_manager: MagicMock,
+        funding_monitor: FundingMonitor,
+    ) -> None:
+        """Autonomous cycle skips pairs rejected by risk manager."""
+        # Setup funding rates
+        funding_monitor._funding_rates["ETH/USDT:USDT"] = FundingRateData(
+            symbol="ETH/USDT:USDT",
+            rate=Decimal("0.0005"),
+            next_funding_time=0,
+            mark_price=Decimal("3000"),
+            volume_24h=Decimal("5000000"),
+        )
+
+        opp = _make_test_opportunity()
+        mock_ranker.rank_opportunities.return_value = [opp]
+
+        # Risk manager rejects
+        mock_risk_manager.check_can_open.return_value = (False, "At max positions: 5")
+
+        await orchestrator._autonomous_cycle()
+
+        # No position should be opened
+        mock_position_manager.open_position.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_skips_opportunity_that_fails_filters(
+        self,
+        orchestrator: Orchestrator,
+        mock_position_manager: AsyncMock,
+        mock_ranker: MagicMock,
+        funding_monitor: FundingMonitor,
+    ) -> None:
+        """Autonomous cycle skips opportunities that don't pass filters."""
+        funding_monitor._funding_rates["ETH/USDT:USDT"] = FundingRateData(
+            symbol="ETH/USDT:USDT",
+            rate=Decimal("0.0005"),
+            next_funding_time=0,
+            mark_price=Decimal("3000"),
+            volume_24h=Decimal("5000000"),
+        )
+
+        opp = _make_test_opportunity(passes_filters=False)
+        mock_ranker.rank_opportunities.return_value = [opp]
+
+        await orchestrator._autonomous_cycle()
+
+        mock_position_manager.open_position.assert_not_called()
+
+
+class TestAutonomousCycleClose:
+    """Tests for autonomous position closing."""
+
+    @pytest.mark.asyncio
+    async def test_closes_position_when_rate_drops_below_exit(
+        self,
+        orchestrator: Orchestrator,
+        mock_position_manager: AsyncMock,
+        mock_ranker: MagicMock,
+        funding_monitor: FundingMonitor,
+        pnl_tracker: PnLTracker,
+    ) -> None:
+        """Autonomous cycle closes position when rate drops below exit threshold."""
+        # Position open on BTC
+        pos = _make_test_position()
+        mock_position_manager.get_open_positions.return_value = [pos]
+        pnl_tracker.record_open(pos, Decimal("7.75"))
+
+        # Funding rate is below exit threshold (0.0001)
+        funding_monitor._funding_rates["BTC/USDT:USDT"] = FundingRateData(
+            symbol="BTC/USDT:USDT",
+            rate=Decimal("0.00005"),  # Below exit_funding_rate
+            next_funding_time=0,
+            mark_price=Decimal("50000"),
+        )
+
+        # Mock close results
+        spot_result = OrderResult(
+            order_id="sc1", symbol="BTC/USDT", side=OrderSide.SELL,
+            filled_qty=Decimal("0.1"), filled_price=Decimal("50000"),
+            fee=Decimal("5"), timestamp=time.time(),
+        )
+        perp_result = OrderResult(
+            order_id="pc1", symbol="BTC/USDT:USDT", side=OrderSide.BUY,
+            filled_qty=Decimal("0.1"), filled_price=Decimal("50000"),
+            fee=Decimal("2.75"), timestamp=time.time(),
+        )
+        mock_position_manager.close_position.return_value = (spot_result, perp_result)
+        mock_ranker.rank_opportunities.return_value = []
+
+        await orchestrator._autonomous_cycle()
+
+        # Position should have been closed
+        mock_position_manager.close_position.assert_called_once_with("pos_1")
+
+    @pytest.mark.asyncio
+    async def test_closes_position_when_rate_unavailable(
+        self,
+        orchestrator: Orchestrator,
+        mock_position_manager: AsyncMock,
+        mock_ranker: MagicMock,
+        funding_monitor: FundingMonitor,
+        pnl_tracker: PnLTracker,
+    ) -> None:
+        """Autonomous cycle closes position when funding rate data is unavailable."""
+        pos = _make_test_position()
+        mock_position_manager.get_open_positions.return_value = [pos]
+        pnl_tracker.record_open(pos, Decimal("7.75"))
+
+        # No funding rate data for BTC/USDT:USDT, but need at least one
+        # rate entry so the cycle doesn't return early at the SCAN step
+        funding_monitor._funding_rates["SOL/USDT:USDT"] = FundingRateData(
+            symbol="SOL/USDT:USDT",
+            rate=Decimal("0.0003"),
+            next_funding_time=0,
+            mark_price=Decimal("100"),
+            volume_24h=Decimal("5000000"),
+        )
+
+        spot_result = OrderResult(
+            order_id="sc1", symbol="BTC/USDT", side=OrderSide.SELL,
+            filled_qty=Decimal("0.1"), filled_price=Decimal("50000"),
+            fee=Decimal("5"), timestamp=time.time(),
+        )
+        perp_result = OrderResult(
+            order_id="pc1", symbol="BTC/USDT:USDT", side=OrderSide.BUY,
+            filled_qty=Decimal("0.1"), filled_price=Decimal("50000"),
+            fee=Decimal("2.75"), timestamp=time.time(),
+        )
+        mock_position_manager.close_position.return_value = (spot_result, perp_result)
+        mock_ranker.rank_opportunities.return_value = []
+
+        await orchestrator._autonomous_cycle()
+
+        mock_position_manager.close_position.assert_called_once_with("pos_1")
+
+
+class TestMarginMonitoring:
+    """Tests for margin ratio monitoring."""
+
+    @pytest.mark.asyncio
+    async def test_margin_critical_triggers_emergency(
+        self,
+        orchestrator: Orchestrator,
+        mock_risk_manager: MagicMock,
+        mock_emergency_controller: AsyncMock,
+        funding_monitor: FundingMonitor,
+        mock_ranker: MagicMock,
+    ) -> None:
+        """Margin critical triggers emergency controller."""
+        # Setup: provide some funding rates so the cycle doesn't return early
+        funding_monitor._funding_rates["BTC/USDT:USDT"] = FundingRateData(
+            symbol="BTC/USDT:USDT",
+            rate=Decimal("0.0005"),
+            next_funding_time=0,
+            mark_price=Decimal("50000"),
+            volume_24h=Decimal("5000000"),
+        )
+        mock_ranker.rank_opportunities.return_value = []
+
+        # Margin check returns critical level
+        mock_risk_manager.check_margin_ratio = AsyncMock(
+            return_value=(Decimal("0.95"), True)
+        )
+        mock_risk_manager.is_margin_critical.return_value = True
+
+        await orchestrator._autonomous_cycle()
+
+        # Emergency controller should be triggered
+        mock_emergency_controller.trigger.assert_called_once()
+        trigger_arg = mock_emergency_controller.trigger.call_args[0][0]
+        assert "margin_critical" in trigger_arg
+
+    @pytest.mark.asyncio
+    async def test_margin_alert_does_not_trigger_emergency(
+        self,
+        orchestrator: Orchestrator,
+        mock_risk_manager: MagicMock,
+        mock_emergency_controller: AsyncMock,
+        funding_monitor: FundingMonitor,
+        mock_ranker: MagicMock,
+    ) -> None:
+        """Margin alert logs warning but does not trigger emergency."""
+        funding_monitor._funding_rates["BTC/USDT:USDT"] = FundingRateData(
+            symbol="BTC/USDT:USDT",
+            rate=Decimal("0.0005"),
+            next_funding_time=0,
+            mark_price=Decimal("50000"),
+            volume_24h=Decimal("5000000"),
+        )
+        mock_ranker.rank_opportunities.return_value = []
+
+        # Margin check returns alert (but not critical)
+        mock_risk_manager.check_margin_ratio = AsyncMock(
+            return_value=(Decimal("0.85"), True)
+        )
+        mock_risk_manager.is_margin_critical.return_value = False
+
+        await orchestrator._autonomous_cycle()
+
+        # Emergency controller should NOT be triggered
+        mock_emergency_controller.trigger.assert_not_called()
+
+
+class TestGracefulStop:
+    """Tests for graceful shutdown."""
+
+    @pytest.mark.asyncio
+    async def test_graceful_stop_closes_all_positions(
+        self,
+        orchestrator: Orchestrator,
+        mock_position_manager: AsyncMock,
+        pnl_tracker: PnLTracker,
+    ) -> None:
+        """Graceful stop closes all open positions."""
+        pos1 = _make_test_position(position_id="pos_a", perp_symbol="BTC/USDT:USDT")
+        pos2 = _make_test_position(position_id="pos_b", perp_symbol="ETH/USDT:USDT")
+        mock_position_manager.get_open_positions.return_value = [pos1, pos2]
+
+        # Record P&L for both
+        pnl_tracker.record_open(pos1, Decimal("7.75"))
+        pnl_tracker.record_open(pos2, Decimal("5.00"))
+
+        # Mock close results
+        spot_result = OrderResult(
+            order_id="sc1", symbol="BTC/USDT", side=OrderSide.SELL,
+            filled_qty=Decimal("0.1"), filled_price=Decimal("50000"),
+            fee=Decimal("5"), timestamp=time.time(),
+        )
+        perp_result = OrderResult(
+            order_id="pc1", symbol="BTC/USDT:USDT", side=OrderSide.BUY,
+            filled_qty=Decimal("0.1"), filled_price=Decimal("50000"),
+            fee=Decimal("2.75"), timestamp=time.time(),
+        )
+        mock_position_manager.close_position.return_value = (spot_result, perp_result)
+
+        orchestrator._running = True
+        await orchestrator.stop()
+
+        assert orchestrator._running is False
+        assert mock_position_manager.close_position.call_count == 2
+
+
+class TestCycleLock:
+    """Tests for cycle lock preventing overlapping cycles."""
+
+    @pytest.mark.asyncio
+    async def test_cycle_lock_prevents_overlapping_cycles(
+        self, orchestrator: Orchestrator
+    ) -> None:
+        """Cycle lock prevents overlapping autonomous cycles."""
+        call_order: list[str] = []
+
+        async def slow_cycle() -> None:
+            call_order.append("start")
+            await asyncio.sleep(0.1)
+            call_order.append("end")
+
+        orchestrator._autonomous_cycle = slow_cycle  # type: ignore[method-assign]
+
+        # Try to acquire lock and run two cycles concurrently
+        async def run_locked_cycle() -> None:
+            async with orchestrator._cycle_lock:
+                await orchestrator._autonomous_cycle()
+
+        t1 = asyncio.create_task(run_locked_cycle())
+        t2 = asyncio.create_task(run_locked_cycle())
+
+        await asyncio.gather(t1, t2)
+
+        # Both cycles ran but sequentially (not overlapping)
+        assert call_order == ["start", "end", "start", "end"]
+
+
+class TestAutonomousCycleNoRates:
+    """Tests for autonomous cycle with no funding rates."""
+
+    @pytest.mark.asyncio
+    async def test_cycle_returns_early_when_no_rates(
+        self,
+        orchestrator: Orchestrator,
+        mock_ranker: MagicMock,
+    ) -> None:
+        """Autonomous cycle returns early when no funding rates available."""
+        # No funding rates in monitor cache
+        await orchestrator._autonomous_cycle()
+
+        # Ranker should never be called
+        mock_ranker.rank_opportunities.assert_not_called()
 
 
 # =============================================================================
@@ -457,6 +883,10 @@ def _create_orchestrator_with_executor(
     pnl_tracker = PnLTracker(fee_calculator, ticker_service, settings.fees)
     funding_monitor = FundingMonitor(mock_exchange_client, ticker_service)
 
+    # Create risk manager and ranker for Phase 2 constructor
+    risk_manager = RiskManager(settings=settings.risk)
+    ranker = OpportunityRanker(settings.fees)
+
     orchestrator = Orchestrator(
         settings=settings,
         exchange_client=mock_exchange_client,
@@ -466,6 +896,8 @@ def _create_orchestrator_with_executor(
         pnl_tracker=pnl_tracker,
         delta_validator=delta_validator,
         fee_calculator=fee_calculator,
+        risk_manager=risk_manager,
+        ranker=ranker,
     )
 
     return orchestrator, position_manager, pnl_tracker, funding_monitor

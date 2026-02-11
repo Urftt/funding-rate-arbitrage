@@ -1,11 +1,18 @@
 """Main bot orchestrator -- wires all components and runs the main loop.
 
 Integrates funding rate monitoring, position management, P&L tracking,
-and delta validation into a single state machine.
+delta validation, opportunity ranking, risk management, and emergency
+stop into a single autonomous trading loop.
 
 Phase 1: Monitors funding rates, logs opportunities, simulates funding
 settlement every 8h, and provides manual open/close convenience methods.
-Phase 2 adds autonomous trading logic.
+
+Phase 2: Autonomous scan-rank-decide-execute cycle. Each iteration:
+  1. SCAN: Get all funding rates from monitor cache
+  2. RANK: Score each pair by net yield after fees
+  3. DECIDE & EXECUTE: Close unprofitable, open profitable
+  4. MONITOR: Check margin ratio
+  5. LOG: Position status
 
 PAPR-02: Works identically with PaperExecutor and LiveExecutor --
 the orchestrator delegates to PositionManager which uses the swappable
@@ -14,19 +21,21 @@ Executor ABC. No branching on executor type.
 
 import asyncio
 import time
-
 from decimal import Decimal
 
 from bot.config import AppSettings
 from bot.exchange.client import ExchangeClient
 from bot.logging import get_logger
 from bot.market_data.funding_monitor import FundingMonitor
+from bot.market_data.opportunity_ranker import OpportunityRanker
 from bot.market_data.ticker_service import TickerService
-from bot.models import Position
+from bot.models import OpportunityScore, Position
 from bot.pnl.fee_calculator import FeeCalculator
 from bot.pnl.tracker import PnLTracker
 from bot.position.delta_validator import DeltaValidator
 from bot.position.manager import PositionManager
+from bot.risk.emergency import EmergencyController
+from bot.risk.manager import RiskManager
 
 logger = get_logger(__name__)
 
@@ -37,13 +46,10 @@ _FUNDING_SETTLEMENT_INTERVAL = 8 * 60 * 60  # 28800 seconds
 class Orchestrator:
     """Main bot loop integrating all components.
 
-    Monitors funding rates, tracks position P&L, simulates funding
-    settlement, and provides convenience methods for manual position
-    management in Phase 1.
-
-    NOTE: Phase 1 orchestrator is deliberately simple -- it monitors
-    and logs. It does NOT auto-open positions. Phase 2 adds autonomous
-    trading logic.
+    Phase 2: Autonomous scan-rank-decide-execute cycle with risk
+    management and emergency stop. Each iteration scans funding rates,
+    ranks opportunities by net yield, opens profitable positions within
+    risk limits, closes unprofitable ones, and monitors margin ratio.
 
     Args:
         settings: Application-wide settings.
@@ -54,6 +60,9 @@ class Orchestrator:
         pnl_tracker: P&L and funding tracker.
         delta_validator: Delta neutrality checker.
         fee_calculator: Fee computation service.
+        risk_manager: Pre-trade and runtime risk engine.
+        ranker: Opportunity ranking engine.
+        emergency_controller: Emergency stop controller.
     """
 
     def __init__(
@@ -66,6 +75,9 @@ class Orchestrator:
         pnl_tracker: PnLTracker,
         delta_validator: DeltaValidator,
         fee_calculator: FeeCalculator,
+        risk_manager: RiskManager,
+        ranker: OpportunityRanker,
+        emergency_controller: EmergencyController | None = None,
     ) -> None:
         self._settings = settings
         self._exchange_client = exchange_client
@@ -75,14 +87,18 @@ class Orchestrator:
         self._pnl_tracker = pnl_tracker
         self._delta_validator = delta_validator
         self._fee_calculator = fee_calculator
+        self._risk_manager = risk_manager
+        self._ranker = ranker
+        self._emergency_controller = emergency_controller
         self._running = False
         self._last_funding_check: float = 0.0
+        self._cycle_lock = asyncio.Lock()
 
     async def start(self) -> None:
         """Start the orchestrator: begin funding monitor, then run main loop.
 
         Starts the FundingMonitor background task and enters the main
-        monitoring loop. Handles graceful shutdown via stop().
+        autonomous trading loop. Handles graceful shutdown via stop().
         """
         logger.info(
             "orchestrator_starting",
@@ -99,61 +115,183 @@ class Orchestrator:
             logger.info("orchestrator_stopped")
 
     async def stop(self) -> None:
-        """Signal the orchestrator to stop gracefully."""
-        logger.info("orchestrator_stopping")
+        """Signal the orchestrator to stop gracefully.
+
+        Closes all open positions before stopping to ensure clean shutdown.
+        """
+        logger.info("orchestrator_stopping_gracefully")
         self._running = False
+        # Close all positions gracefully on shutdown
+        for position in self._position_manager.get_open_positions():
+            try:
+                await self.close_position(position.id)
+            except Exception as e:
+                logger.error(
+                    "graceful_close_failed",
+                    position_id=position.id,
+                    error=str(e),
+                )
 
     async def _run_loop(self) -> None:
-        """Main monitoring loop.
+        """Main autonomous trading loop.
 
-        Each iteration:
-        1. Read profitable funding pairs from monitor
-        2. Log current opportunities
-        3. Check existing positions and log P&L status
-        4. Simulate funding settlement if 8h has passed
-        5. Sleep before next iteration
+        Each iteration runs the autonomous cycle under a lock to prevent
+        overlapping cycles, then checks funding settlement and sleeps.
         """
         while self._running:
             try:
-                # 1. Read profitable pairs from funding monitor cache
-                profitable_pairs = self._funding_monitor.get_profitable_pairs(
-                    self._settings.trading.min_funding_rate
-                )
-
-                # 2. Log current opportunities
-                if profitable_pairs:
-                    logger.info(
-                        "profitable_pairs_found",
-                        count=len(profitable_pairs),
-                        top_pair=profitable_pairs[0].symbol,
-                        top_rate=str(profitable_pairs[0].rate),
-                    )
-
-                # 3. Check existing positions for delta validity and log P&L
-                for position in self._position_manager.get_open_positions():
-                    pnl = self._pnl_tracker.get_total_pnl(position.id)
-                    logger.info(
-                        "position_status",
-                        position_id=position.id,
-                        symbol=position.perp_symbol,
-                        net_pnl=str(pnl["net_pnl"]),
-                        funding_collected=str(pnl["total_funding"]),
-                    )
-
-                # 4. Simulate funding settlement if 8h has passed
+                async with self._cycle_lock:
+                    await self._autonomous_cycle()
                 self._check_funding_settlement()
-
-                # 5. Sleep before next iteration
-                scan_interval = getattr(
-                    self._settings.trading, "scan_interval", None
-                ) or 60
-                await asyncio.sleep(scan_interval)
-
+                await asyncio.sleep(self._settings.trading.scan_interval)
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error("orchestrator_error", error=str(e), exc_info=True)
+                logger.error("orchestrator_cycle_error", error=str(e), exc_info=True)
                 await asyncio.sleep(10)
+
+    async def _autonomous_cycle(self) -> None:
+        """One iteration of the autonomous trading loop.
+
+        Implements the scan-rank-decide-execute pattern:
+        1. SCAN: Get all funding rates from monitor cache
+        2. RANK: Score each pair by net yield after fees
+        3. DECIDE & EXECUTE: Close unprofitable, open profitable
+        4. MONITOR: Check margin ratio
+        5. LOG: Position status
+        """
+        # 1. SCAN: Get all funding rates from monitor cache
+        all_rates = self._funding_monitor.get_all_funding_rates()
+        if not all_rates:
+            logger.debug("no_funding_rates_available")
+            return
+
+        # 2. RANK: Score each pair by net yield after fees
+        markets = self._exchange_client.get_markets()
+        opportunities = self._ranker.rank_opportunities(
+            funding_rates=all_rates,
+            markets=markets,
+            min_rate=self._settings.trading.min_funding_rate,
+            min_volume_24h=self._settings.risk.min_volume_24h,
+            min_holding_periods=self._settings.risk.min_holding_periods,
+        )
+
+        if opportunities:
+            top = opportunities[0]
+            logger.info(
+                "opportunities_ranked",
+                count=len(opportunities),
+                top_pair=top.perp_symbol,
+                top_annualized_yield=str(top.annualized_yield),
+            )
+
+        # 3. DECIDE & EXECUTE: Close unprofitable, open profitable
+        await self._close_unprofitable_positions()
+        await self._open_profitable_positions(opportunities)
+
+        # 4. MONITOR: Check margin ratio
+        await self._check_margin_ratio()
+
+        # 5. LOG: Position status
+        self._log_position_status()
+
+    async def _close_unprofitable_positions(self) -> None:
+        """Close positions where funding rate dropped below exit threshold (EXEC-02)."""
+        for position in self._position_manager.get_open_positions():
+            rate_data = self._funding_monitor.get_funding_rate(position.perp_symbol)
+            if rate_data is None or rate_data.rate < self._settings.risk.exit_funding_rate:
+                reason = (
+                    "rate_unavailable"
+                    if rate_data is None
+                    else f"rate_below_exit_{rate_data.rate}"
+                )
+                logger.info(
+                    "closing_unprofitable_position",
+                    position_id=position.id,
+                    perp_symbol=position.perp_symbol,
+                    reason=reason,
+                )
+                try:
+                    await self.close_position(position.id)
+                except Exception as e:
+                    logger.error(
+                        "close_unprofitable_failed",
+                        position_id=position.id,
+                        error=str(e),
+                    )
+
+    async def _open_profitable_positions(
+        self, opportunities: list[OpportunityScore]
+    ) -> None:
+        """Open positions on top-ranked pairs within risk limits (MKTD-02, MKTD-03)."""
+        for opp in opportunities:
+            if not opp.passes_filters:
+                continue
+
+            # Check risk limits
+            can_open, reason = self._risk_manager.check_can_open(
+                symbol=opp.perp_symbol,
+                position_size_usd=self._settings.trading.max_position_size_usd,
+                current_positions=self._position_manager.get_open_positions(),
+            )
+            if not can_open:
+                logger.debug(
+                    "risk_check_rejected",
+                    symbol=opp.perp_symbol,
+                    reason=reason,
+                )
+                continue
+
+            # Open position
+            try:
+                await self.open_position(opp.spot_symbol, opp.perp_symbol)
+                logger.info(
+                    "autonomous_position_opened",
+                    spot_symbol=opp.spot_symbol,
+                    perp_symbol=opp.perp_symbol,
+                    annualized_yield=str(opp.annualized_yield),
+                )
+            except Exception as e:
+                logger.error(
+                    "autonomous_open_failed",
+                    symbol=opp.perp_symbol,
+                    error=str(e),
+                )
+
+    async def _check_margin_ratio(self) -> None:
+        """RISK-05: Check margin ratio and trigger alerts or emergency stop."""
+        try:
+            mm_rate, is_alert = await self._risk_manager.check_margin_ratio()
+            if self._risk_manager.is_margin_critical(mm_rate):
+                logger.critical(
+                    "margin_critical_triggering_emergency",
+                    mm_rate=str(mm_rate),
+                )
+                if self._emergency_controller is not None:
+                    await self._emergency_controller.trigger(
+                        f"margin_critical_{mm_rate}"
+                    )
+                return
+            if is_alert:
+                logger.warning(
+                    "margin_alert",
+                    mm_rate=str(mm_rate),
+                    threshold=str(self._settings.risk.margin_alert_threshold),
+                )
+        except Exception as e:
+            logger.error("margin_check_failed", error=str(e))
+
+    def _log_position_status(self) -> None:
+        """Log P&L status for all open positions."""
+        for position in self._position_manager.get_open_positions():
+            pnl = self._pnl_tracker.get_total_pnl(position.id)
+            logger.info(
+                "position_status",
+                position_id=position.id,
+                symbol=position.perp_symbol,
+                net_pnl=str(pnl["net_pnl"]),
+                funding_collected=str(pnl["total_funding"]),
+            )
 
     def _check_funding_settlement(self) -> None:
         """Check if 8 hours have elapsed and trigger funding settlement.
@@ -263,15 +401,31 @@ class Orchestrator:
         """Return current orchestrator status.
 
         Returns:
-            Dict with: running, open_positions_count, mode, portfolio_summary.
+            Dict with: running, open_positions_count, mode, portfolio_summary,
+            emergency_triggered.
         """
         portfolio = self._pnl_tracker.get_portfolio_summary()
 
+        open_positions = self._position_manager.get_open_positions()
+
         return {
             "running": self._running,
-            "open_positions_count": len(
-                self._position_manager.get_open_positions()
-            ),
+            "open_positions_count": len(open_positions),
             "mode": self._settings.trading.mode,
             "portfolio_summary": portfolio,
+            "emergency_triggered": (
+                self._emergency_controller.triggered
+                if self._emergency_controller is not None
+                else False
+            ),
         }
+
+    def set_emergency_controller(
+        self, controller: EmergencyController
+    ) -> None:
+        """Set the emergency controller (resolves circular dependency).
+
+        Args:
+            controller: The EmergencyController instance.
+        """
+        self._emergency_controller = controller
