@@ -1,0 +1,44 @@
+<div id="positions-panel">
+  <div class="bg-dash-card rounded-lg p-4 border border-dash-border">
+    <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">Open Positions</h2>
+
+    {% if positions_with_pnl %}
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-gray-400 text-xs uppercase tracking-wide border-b border-dash-border">
+              <th class="text-left py-2 px-2">Pair</th>
+              <th class="text-right py-2 px-2">Entry (Spot)</th>
+              <th class="text-right py-2 px-2">Entry (Perp)</th>
+              <th class="text-right py-2 px-2">Size</th>
+              <th class="text-right py-2 px-2">Unrealized P&amp;L</th>
+              <th class="text-right py-2 px-2">Funding</th>
+              <th class="text-right py-2 px-2">Net P&amp;L</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in positions_with_pnl %}
+              <tr class="border-b border-dash-border/50 {% if loop.index is odd %}bg-dash-card{% else %}bg-dash-bg/30{% endif %}">
+                <td class="py-2 px-2 text-gray-200 font-medium">{{ item.position.perp_symbol }}</td>
+                <td class="py-2 px-2 text-right text-gray-300">{{ item.position.spot_entry_price | format_decimal }}</td>
+                <td class="py-2 px-2 text-right text-gray-300">{{ item.position.perp_entry_price | format_decimal }}</td>
+                <td class="py-2 px-2 text-right text-gray-300">{{ item.position.quantity | format_decimal }}</td>
+                <td class="py-2 px-2 text-right {% if item.pnl.unrealized_pnl > 0 %}text-green-400{% elif item.pnl.unrealized_pnl < 0 %}text-red-400{% else %}text-gray-300{% endif %}">
+                  {{ item.pnl.unrealized_pnl | format_decimal }}
+                </td>
+                <td class="py-2 px-2 text-right {% if item.pnl.total_funding > 0 %}text-green-400{% else %}text-gray-300{% endif %}">
+                  {{ item.pnl.total_funding | format_decimal }}
+                </td>
+                <td class="py-2 px-2 text-right font-medium {% if item.pnl.net_pnl > 0 %}text-green-400{% elif item.pnl.net_pnl < 0 %}text-red-400{% else %}text-gray-300{% endif %}">
+                  {{ item.pnl.net_pnl | format_decimal }}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="text-gray-500 text-sm italic">No open positions</p>
+    {% endif %}
+  </div>
+</div>

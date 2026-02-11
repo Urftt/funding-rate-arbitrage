@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard | Funding Rate Arbitrage{% endblock %}
+
+{% block content %}
+<!-- Top row: Status + Balance + Analytics summary -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+  <div>{% include "partials/bot_status.html" %}</div>
+  <div>{% include "partials/balance.html" %}</div>
+  <div>{% include "partials/analytics.html" %}</div>
+</div>
+
+<!-- Positions table -->
+<div class="mt-4">{% include "partials/positions.html" %}</div>
+
+<!-- Two-column: Funding rates + Trade history -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+  <div>{% include "partials/funding_rates.html" %}</div>
+  <div>{% include "partials/trade_history.html" %}</div>
+</div>
+
+<!-- Config form -->
+<div class="mt-4">{% include "partials/config_form.html" %}</div>
+{% endblock %}

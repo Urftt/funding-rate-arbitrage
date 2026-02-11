@@ -1,0 +1,55 @@
+<div id="trade-history-panel">
+  <div class="bg-dash-card rounded-lg p-4 border border-dash-border">
+    <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">Trade History</h2>
+
+    {% if closed_positions %}
+      <div class="overflow-x-auto max-h-96 overflow-y-auto">
+        <table class="w-full text-sm">
+          <thead class="sticky top-0 bg-dash-card">
+            <tr class="text-gray-400 text-xs uppercase tracking-wide border-b border-dash-border">
+              <th class="text-left py-2 px-2">Pair</th>
+              <th class="text-right py-2 px-2">Opened</th>
+              <th class="text-right py-2 px-2">Closed</th>
+              <th class="text-right py-2 px-2">Funding</th>
+              <th class="text-right py-2 px-2">Fees</th>
+              <th class="text-right py-2 px-2">Net P&amp;L</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% set ns = namespace(cumulative=0) %}
+            {% for pos in closed_positions %}
+              {% set total_funding = pos.funding_payments | sum(attribute='amount') if pos.funding_payments else 0 %}
+              {% set total_fees = pos.entry_fee + pos.exit_fee %}
+              {% set net_pnl = total_funding - total_fees %}
+              {% set ns.cumulative = ns.cumulative + net_pnl | float %}
+              <tr class="border-b border-dash-border/50 {% if loop.index is odd %}bg-dash-card{% else %}bg-dash-bg/30{% endif %}">
+                <td class="py-1.5 px-2 text-gray-200">{{ pos.perp_symbol }}</td>
+                <td class="py-1.5 px-2 text-right text-gray-400 text-xs">
+                  <script>document.currentScript.parentElement.textContent = new Date({{ pos.opened_at }} * 1000).toLocaleString();</script>
+                </td>
+                <td class="py-1.5 px-2 text-right text-gray-400 text-xs">
+                  <script>document.currentScript.parentElement.textContent = new Date({{ pos.closed_at }} * 1000).toLocaleString();</script>
+                </td>
+                <td class="py-1.5 px-2 text-right text-green-400">{{ total_funding | format_decimal }}</td>
+                <td class="py-1.5 px-2 text-right text-red-400">{{ total_fees | format_decimal }}</td>
+                <td class="py-1.5 px-2 text-right font-medium {% if net_pnl > 0 %}text-green-400{% elif net_pnl < 0 %}text-red-400{% else %}text-gray-300{% endif %}">
+                  {{ net_pnl | format_decimal }}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr class="border-t border-dash-border">
+              <td colspan="5" class="py-2 px-2 text-right text-gray-400 text-sm font-medium">Cumulative Profit:</td>
+              <td class="py-2 px-2 text-right text-sm font-bold {% if ns.cumulative > 0 %}text-green-400{% elif ns.cumulative < 0 %}text-red-400{% else %}text-gray-300{% endif %}">
+                {{ "%.8f" | format(ns.cumulative) }}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    {% else %}
+      <p class="text-gray-500 text-sm italic">No trade history yet</p>
+    {% endif %}
+  </div>
+</div>

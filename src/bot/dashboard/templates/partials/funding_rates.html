@@ -1,0 +1,34 @@
+<div id="funding-rates-panel">
+  <div class="bg-dash-card rounded-lg p-4 border border-dash-border">
+    <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">Funding Rates</h2>
+
+    {% if funding_rates %}
+      <div class="overflow-x-auto max-h-96 overflow-y-auto">
+        <table class="w-full text-sm">
+          <thead class="sticky top-0 bg-dash-card">
+            <tr class="text-gray-400 text-xs uppercase tracking-wide border-b border-dash-border">
+              <th class="text-left py-2 px-2">Symbol</th>
+              <th class="text-right py-2 px-2">Rate</th>
+              <th class="text-right py-2 px-2">Volume 24h</th>
+              <th class="text-right py-2 px-2">Interval</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for fr in funding_rates[:30] %}
+              <tr class="border-b border-dash-border/50 {% if loop.index is odd %}bg-dash-card{% else %}bg-dash-bg/30{% endif %}">
+                <td class="py-1.5 px-2 text-gray-200">{{ fr.symbol }}</td>
+                <td class="py-1.5 px-2 text-right font-mono {% if fr.rate > 0 %}text-green-400{% elif fr.rate < 0 %}text-red-400{% else %}text-gray-300{% endif %}">
+                  {{ "%.4f" | format(fr.rate | float * 100) }}%
+                </td>
+                <td class="py-1.5 px-2 text-right text-gray-400">{{ "{:,.0f}".format(fr.volume_24h | float) }}</td>
+                <td class="py-1.5 px-2 text-right text-gray-400">{{ fr.interval_hours }}h</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="text-gray-500 text-sm italic">No funding rate data available</p>
+    {% endif %}
+  </div>
+</div>

@@ -1,0 +1,30 @@
+<div id="balance-panel">
+  <div class="bg-dash-card rounded-lg p-4 border border-dash-border">
+    <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">Portfolio Balance</h2>
+
+    <div class="space-y-2">
+      <div class="flex justify-between items-center">
+        <span class="text-sm text-gray-400">Net P&amp;L</span>
+        {% set net_pnl = portfolio.net_portfolio_pnl %}
+        <span class="text-sm font-medium {% if net_pnl > 0 %}text-green-400{% elif net_pnl < 0 %}text-red-400{% else %}text-gray-300{% endif %}">
+          {{ net_pnl | format_decimal }} USDT
+        </span>
+      </div>
+
+      <div class="flex justify-between items-center">
+        <span class="text-sm text-gray-400">Funding Collected</span>
+        <span class="text-sm font-medium text-green-400">{{ portfolio.total_funding_collected | format_decimal }} USDT</span>
+      </div>
+
+      <div class="flex justify-between items-center">
+        <span class="text-sm text-gray-400">Fees Paid</span>
+        <span class="text-sm font-medium text-red-400">{{ portfolio.total_fees_paid | format_decimal }} USDT</span>
+      </div>
+
+      <div class="border-t border-dash-border pt-2 flex justify-between items-center">
+        <span class="text-sm text-gray-400">Positions</span>
+        <span class="text-sm font-medium text-gray-200">{{ portfolio.position_count }}</span>
+      </div>
+    </div>
+  </div>
+</div>

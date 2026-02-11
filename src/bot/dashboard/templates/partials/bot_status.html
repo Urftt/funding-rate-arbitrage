@@ -1,0 +1,39 @@
+<div id="bot-status-panel">
+  <div class="bg-dash-card rounded-lg p-4 border border-dash-border">
+    <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">Bot Status</h2>
+
+    <div class="flex items-center gap-3 mb-3">
+      {% if status.running %}
+        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-900 text-green-300">Running</span>
+      {% else %}
+        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-900 text-red-300">Stopped</span>
+      {% endif %}
+
+      <span class="text-xs text-gray-400">Mode: <span class="text-gray-200">{{ status.mode }}</span></span>
+    </div>
+
+    <div class="text-sm text-gray-300 mb-3">
+      Open Positions: <span class="text-white font-medium">{{ status.open_positions_count }}</span>
+    </div>
+
+    {% if status.emergency_triggered %}
+      <div class="bg-red-900/50 border border-red-700 rounded p-2 mb-3">
+        <span class="text-red-300 text-sm font-medium">Emergency Stop Triggered</span>
+      </div>
+    {% endif %}
+
+    <div class="flex gap-2">
+      {% if status.running %}
+        <button hx-post="/actions/bot/stop" hx-target="#bot-status-panel" hx-swap="innerHTML"
+                class="px-3 py-1.5 bg-red-700 hover:bg-red-600 text-white text-xs rounded font-medium transition-colors">
+          Stop Bot
+        </button>
+      {% else %}
+        <button hx-post="/actions/bot/start" hx-target="#bot-status-panel" hx-swap="innerHTML"
+                class="px-3 py-1.5 bg-green-700 hover:bg-green-600 text-white text-xs rounded font-medium transition-colors">
+          Start Bot
+        </button>
+      {% endif %}
+    </div>
+  </div>
+</div>

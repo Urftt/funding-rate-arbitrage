@@ -1,0 +1,34 @@
+<div id="analytics-panel">
+  <div class="bg-dash-card rounded-lg p-4 border border-dash-border">
+    <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">Performance Analytics</h2>
+
+    <div class="space-y-2">
+      <div class="flex justify-between items-center">
+        <span class="text-sm text-gray-400">Sharpe Ratio</span>
+        {% if analytics.sharpe is not none %}
+          <span class="text-sm font-medium text-gray-200">{{ "%.2f" | format(analytics.sharpe | float) }}</span>
+        {% else %}
+          <span class="text-sm text-gray-500 italic">Insufficient data</span>
+        {% endif %}
+      </div>
+
+      <div class="flex justify-between items-center">
+        <span class="text-sm text-gray-400">Max Drawdown</span>
+        {% if analytics.max_drawdown is not none %}
+          <span class="text-sm font-medium text-red-400">{{ analytics.max_drawdown | format_decimal }} USDT</span>
+        {% else %}
+          <span class="text-sm text-gray-500 italic">Insufficient data</span>
+        {% endif %}
+      </div>
+
+      <div class="flex justify-between items-center">
+        <span class="text-sm text-gray-400">Win Rate</span>
+        {% if analytics.win_rate is not none %}
+          <span class="text-sm font-medium text-gray-200">{{ "%.1f" | format(analytics.win_rate | float * 100) }}%</span>
+        {% else %}
+          <span class="text-sm text-gray-500 italic">Insufficient data</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
