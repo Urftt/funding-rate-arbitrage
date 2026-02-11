@@ -5,33 +5,33 @@
 See: .planning/PROJECT.md (updated 2026-02-11)
 
 **Core value:** The bot correctly identifies funding rate opportunities and executes delta-neutral positions that collect funding payments without taking directional risk.
-**Current focus:** Phase 2 — Multi-Pair Intelligence foundation types and exchange extensions
+**Current focus:** Phase 2 — Multi-Pair Intelligence OpportunityRanker and risk management
 
 ## Current Position
 
 Phase: 2 of 3 (Multi-Pair Intelligence)
-Plan: 1 of 4
+Plan: 2 of 4
 Status: Plan Complete
-Last activity: 2026-02-11 — Completed 02-01-PLAN.md (Foundation Types & Exchange Extensions)
+Last activity: 2026-02-11 — Completed 02-02-PLAN.md (OpportunityRanker Net Yield Scoring)
 
-Progress: [██░░░░░░░░] 25%
+Progress: [█████░░░░░] 50%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 6
-- Average duration: 5 min
-- Total execution time: 0.43 hours
+- Total plans completed: 7
+- Average duration: 4 min
+- Total execution time: 0.48 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01-core-trading-engine | 5/5 | 23 min | 5 min |
-| 02-multi-pair-intelligence | 1/4 | 3 min | 3 min |
+| 02-multi-pair-intelligence | 2/4 | 6 min | 3 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-02 (4 min), 01-03 (5 min), 01-04 (5 min), 01-05 (5 min), 02-01 (3 min)
+- Last 5 plans: 01-03 (5 min), 01-04 (5 min), 01-05 (5 min), 02-01 (3 min), 02-02 (3 min)
 - Trend: Consistent ~3-5 min/plan
 
 *Updated after each plan completion*
@@ -62,6 +62,9 @@ Recent decisions affecting current work:
 - [02-01] paper_virtual_equity added to RiskSettings rather than separate config class
 - [02-01] get_markets is synchronous on ExchangeClient ABC (markets loaded at connect time)
 - [02-01] simulate_paper_margin is module-level function, not on PaperExecutor class
+- [02-02] Net yield formula uses Decimal arithmetic exclusively -- no float conversions
+- [02-02] Spot symbol derived from markets dict base/quote fields, not string manipulation
+- [02-02] Inactive spot markets treated same as missing -- pair excluded from rankings
 
 ### Pending Todos
 
@@ -75,6 +78,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-11 - Plan 02-01 execution
-Stopped at: Completed 02-01-PLAN.md (Foundation Types & Exchange Extensions)
+Last session: 2026-02-11 - Plan 02-02 execution
+Stopped at: Completed 02-02-PLAN.md (OpportunityRanker Net Yield Scoring)
 Resume file: None
