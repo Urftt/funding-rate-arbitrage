@@ -10,27 +10,27 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 ## Current Position
 
 Phase: 1 of 3 (Core Trading Engine)
-Plan: 4 of 5
-Status: Executing
-Last activity: 2026-02-11 — Completed 01-04-PLAN.md (Execution Layer & Position Management)
+Plan: 5 of 5
+Status: Phase Complete
+Last activity: 2026-02-11 — Completed 01-05-PLAN.md (P&L Tracking & Orchestrator Integration)
 
-Progress: [████████░░] 80%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4
-- Average duration: 4 min
-- Total execution time: 0.30 hours
+- Total plans completed: 5
+- Average duration: 5 min
+- Total execution time: 0.38 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01-core-trading-engine | 4/5 | 18 min | 4 min |
+| 01-core-trading-engine | 5/5 | 23 min | 5 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (4 min), 01-02 (4 min), 01-03 (5 min), 01-04 (5 min)
+- Last 5 plans: 01-01 (4 min), 01-02 (4 min), 01-03 (5 min), 01-04 (5 min), 01-05 (5 min)
 - Trend: Consistent ~4-5 min/plan
 
 *Updated after each plan completion*
@@ -55,6 +55,9 @@ Recent decisions affecting current work:
 - [01-04] Custom exceptions in dedicated src/bot/exceptions.py to avoid circular imports between executor and position modules
 - [01-04] PaperExecutor uses 0.05% simulated slippage (5 bps) and 60s staleness threshold for realistic fills
 - [01-04] PositionManager acquires asyncio.Lock for both open and close to prevent concurrent position modifications
+- [01-05] PnLTracker.get_total_pnl takes unrealized_pnl as parameter (synchronous) rather than async-fetching prices
+- [01-05] Orchestrator Phase 1 is monitor-only: logs opportunities but does NOT auto-open positions
+- [01-05] Funding settlement uses time.time() elapsed check for paper trading simplicity
 
 ### Pending Todos
 
@@ -68,6 +71,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-11 - Plan 01-04 execution
-Stopped at: Completed 01-04-PLAN.md (Execution Layer & Position Management)
+Last session: 2026-02-11 - Plan 01-05 execution
+Stopped at: Completed 01-05-PLAN.md (P&L Tracking & Orchestrator Integration) -- Phase 1 COMPLETE
 Resume file: None
