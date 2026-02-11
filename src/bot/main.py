@@ -1,7 +1,7 @@
 """Entry point for the funding rate arbitrage bot.
 
 Wires all components together and starts the orchestrator.
-Handles SIGINT/SIGTERM for graceful shutdown.
+Handles SIGINT/SIGTERM for graceful shutdown and SIGUSR1 for emergency stop.
 
 Component wiring order:
 1. AppSettings (configuration)
@@ -15,7 +15,11 @@ Component wiring order:
 9. Executor (PaperExecutor or LiveExecutor based on mode)
 10. PositionManager (position lifecycle)
 11. PnLTracker (P&L and funding tracking)
-12. Orchestrator (main bot loop)
+12. OpportunityRanker (net yield scoring)
+13. RiskManager (pre-trade and runtime risk)
+14. Orchestrator (autonomous trading loop)
+15. EmergencyController (emergency stop with retry)
+16. Signal handlers (SIGINT/SIGTERM graceful, SIGUSR1 emergency)
 """
 
 import asyncio
@@ -25,6 +29,7 @@ from bot.config import AppSettings
 from bot.exchange.bybit_client import BybitClient
 from bot.logging import get_logger, setup_logging
 from bot.market_data.funding_monitor import FundingMonitor
+from bot.market_data.opportunity_ranker import OpportunityRanker
 from bot.market_data.ticker_service import TickerService
 from bot.orchestrator import Orchestrator
 from bot.pnl.fee_calculator import FeeCalculator
@@ -32,6 +37,8 @@ from bot.pnl.tracker import PnLTracker
 from bot.position.delta_validator import DeltaValidator
 from bot.position.manager import PositionManager
 from bot.position.sizing import PositionSizer
+from bot.risk.emergency import EmergencyController
+from bot.risk.manager import RiskManager
 
 
 async def run() -> None:
@@ -42,10 +49,6 @@ async def run() -> None:
     # 2. Setup logging
     setup_logging(settings.log_level)
     logger = get_logger("bot.main")
-    logger.info(
-        "funding_rate_arbitrage_starting",
-        mode=settings.trading.mode,
-    )
 
     # 3. Create exchange client
     exchange_client = BybitClient(settings.exchange)
@@ -99,7 +102,17 @@ async def run() -> None:
     # 11. Create P&L tracker
     pnl_tracker = PnLTracker(fee_calculator, ticker_service, settings.fees)
 
-    # 12. Create orchestrator
+    # 12. Create opportunity ranker
+    ranker = OpportunityRanker(settings.fees)
+
+    # 13. Create risk manager
+    # In paper mode, provide paper margin simulation; in live mode, use exchange client
+    risk_manager = RiskManager(
+        settings=settings.risk,
+        exchange_client=exchange_client if settings.trading.mode == "live" else None,
+    )
+
+    # 14. Create orchestrator
     orchestrator = Orchestrator(
         settings=settings,
         exchange_client=exchange_client,
@@ -109,19 +122,47 @@ async def run() -> None:
         pnl_tracker=pnl_tracker,
         delta_validator=delta_validator,
         fee_calculator=fee_calculator,
+        risk_manager=risk_manager,
+        ranker=ranker,
+        emergency_controller=None,  # Set after orchestrator created (circular ref)
     )
 
-    # 13. Handle SIGINT/SIGTERM for graceful shutdown
+    # 15. Create emergency controller (needs orchestrator.stop as callback)
+    emergency_controller = EmergencyController(
+        position_manager=position_manager,
+        pnl_tracker=pnl_tracker,
+        stop_callback=orchestrator.stop,
+    )
+    orchestrator.set_emergency_controller(emergency_controller)
+
+    # 16. Handle signals
     loop = asyncio.get_running_loop()
 
-    def _signal_handler() -> None:
-        logger.info("shutdown_signal_received")
+    def _graceful_handler() -> None:
+        logger.info("graceful_shutdown_signal")
         asyncio.create_task(orchestrator.stop())
 
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, _signal_handler)
+    def _emergency_handler() -> None:
+        logger.critical("emergency_stop_signal_received")
+        asyncio.create_task(emergency_controller.trigger("user_signal_SIGUSR1"))
 
-    # 14. Connect to exchange and start
+    # SIGINT/SIGTERM = graceful (stop bot, close positions cleanly)
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, _graceful_handler)
+
+    # SIGUSR1 = emergency stop (close all immediately)
+    loop.add_signal_handler(signal.SIGUSR1, _emergency_handler)
+
+    # Log startup info
+    logger.info(
+        "funding_rate_arbitrage_starting",
+        mode=settings.trading.mode,
+        max_positions=settings.risk.max_simultaneous_positions,
+        max_position_size=str(settings.risk.max_position_size_per_pair),
+        exit_rate=str(settings.risk.exit_funding_rate),
+    )
+
+    # 17. Connect to exchange and start
     try:
         await exchange_client.connect()
         await orchestrator.start()
