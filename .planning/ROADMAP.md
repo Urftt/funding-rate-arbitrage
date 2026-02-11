@@ -48,10 +48,13 @@ Plans:
   4. Bot enforces maximum position size per pair and maximum number of simultaneous positions
   5. Bot monitors margin ratio and alerts when below configured thresholds
   6. User can trigger emergency stop that immediately closes all open positions
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
-- [ ] TBD during plan-phase
+- [ ] 02-01-PLAN.md -- Foundation: RiskSettings, OpportunityScore model, exchange client extensions
+- [ ] 02-02-PLAN.md -- OpportunityRanker: net yield scoring and ranking (TDD)
+- [ ] 02-03-PLAN.md -- RiskManager expansion and EmergencyController
+- [ ] 02-04-PLAN.md -- Orchestrator autonomous cycle and main.py wiring
 
 ### Phase 3: Dashboard & Analytics
 **Goal**: User has complete visibility and control over bot operations through a real-time web dashboard.
@@ -76,5 +79,5 @@ Phases execute in numeric order: 1 → 2 → 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Core Trading Engine | 5/5 | ✓ Complete | 2026-02-11 |
-| 2. Multi-Pair Intelligence | 0/TBD | Not started | - |
+| 2. Multi-Pair Intelligence | 0/4 | In Progress | - |
 | 3. Dashboard & Analytics | 0/TBD | Not started | - |
