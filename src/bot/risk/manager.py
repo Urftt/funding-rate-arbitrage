@@ -11,8 +11,9 @@ paper mode, which uses simulate_paper_margin instead.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from decimal import Decimal
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 from bot.config import RiskSettings
 from bot.logging import get_logger
