@@ -1,9 +1,13 @@
 """Entry point for the funding rate arbitrage bot.
 
-Wires all components together and starts the orchestrator.
+Wires all components together, optionally embeds the FastAPI dashboard,
+and starts the orchestrator.  When the dashboard is enabled (default),
+the bot and dashboard share a single asyncio event loop via uvicorn's
+programmatic API and FastAPI's lifespan context manager.
+
 Handles SIGINT/SIGTERM for graceful shutdown and SIGUSR1 for emergency stop.
 
-Component wiring order:
+Component wiring order (in _build_components):
 1. AppSettings (configuration)
 2. Logging setup
 3. ExchangeClient (BybitClient or public-only)
@@ -19,11 +23,15 @@ Component wiring order:
 13. RiskManager (pre-trade and runtime risk)
 14. Orchestrator (autonomous trading loop)
 15. EmergencyController (emergency stop with retry)
-16. Signal handlers (SIGINT/SIGTERM graceful, SIGUSR1 emergency)
 """
 
 import asyncio
 import signal
+from contextlib import asynccontextmanager
+from typing import Any
+
+import uvicorn
+from fastapi import FastAPI
 
 from bot.config import AppSettings
 from bot.exchange.bybit_client import BybitClient
@@ -41,13 +49,22 @@ from bot.risk.emergency import EmergencyController
 from bot.risk.manager import RiskManager
 
 
-async def run() -> None:
-    """Run the funding rate arbitrage bot with full component wiring."""
-    # 1. Load settings
-    settings = AppSettings()
+async def _build_components(settings: AppSettings) -> dict[str, Any]:
+    """Build all bot components from settings.
 
-    # 2. Setup logging
-    setup_logging(settings.log_level)
+    Creates the full dependency graph: exchange client, market data services,
+    execution layer, position management, P&L tracking, risk management,
+    orchestrator, and emergency controller.
+
+    Note: Does NOT call exchange_client.connect() -- that happens in the
+    lifespan (dashboard mode) or run() (non-dashboard mode).
+
+    Args:
+        settings: Application-wide settings.
+
+    Returns:
+        Dict mapping component names to instances.
+    """
     logger = get_logger("bot.main")
 
     # 3. Create exchange client
@@ -106,7 +123,6 @@ async def run() -> None:
     ranker = OpportunityRanker(settings.fees)
 
     # 13. Create risk manager
-    # In paper mode, provide paper margin simulation; in live mode, use exchange client
     risk_manager = RiskManager(
         settings=settings.risk,
         exchange_client=exchange_client if settings.trading.mode == "live" else None,
@@ -135,7 +151,38 @@ async def run() -> None:
     )
     orchestrator.set_emergency_controller(emergency_controller)
 
-    # 16. Handle signals
+    return {
+        "exchange_client": exchange_client,
+        "ticker_service": ticker_service,
+        "funding_monitor": funding_monitor,
+        "fee_calculator": fee_calculator,
+        "position_sizer": position_sizer,
+        "delta_validator": delta_validator,
+        "executor": executor,
+        "position_manager": position_manager,
+        "pnl_tracker": pnl_tracker,
+        "ranker": ranker,
+        "risk_manager": risk_manager,
+        "orchestrator": orchestrator,
+        "emergency_controller": emergency_controller,
+    }
+
+
+def _setup_signal_handlers(
+    orchestrator: Orchestrator, emergency_controller: EmergencyController
+) -> None:
+    """Register OS signal handlers for graceful and emergency shutdown.
+
+    SIGINT/SIGTERM trigger graceful stop (close positions, then exit).
+    SIGUSR1 triggers emergency stop (close all immediately).
+
+    Must be called after the asyncio event loop is running.
+
+    Args:
+        orchestrator: The orchestrator to stop gracefully.
+        emergency_controller: The emergency controller for SIGUSR1.
+    """
+    logger = get_logger("bot.main")
     loop = asyncio.get_running_loop()
 
     def _graceful_handler() -> None:
@@ -153,22 +200,139 @@ async def run() -> None:
     # SIGUSR1 = emergency stop (close all immediately)
     loop.add_signal_handler(signal.SIGUSR1, _emergency_handler)
 
-    # Log startup info
-    logger.info(
-        "funding_rate_arbitrage_starting",
-        mode=settings.trading.mode,
-        max_positions=settings.risk.max_simultaneous_positions,
-        max_position_size=str(settings.risk.max_position_size_per_pair),
-        exit_rate=str(settings.risk.exit_funding_rate),
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage bot component lifecycle within the FastAPI application.
+
+    On startup: stores components on app.state, connects to exchange,
+    starts orchestrator as background task, starts dashboard update loop.
+
+    On shutdown: cancels update loop, stops orchestrator, cancels bot task,
+    disconnects from exchange.
+    """
+    from bot.dashboard.update_loop import dashboard_update_loop
+
+    logger = get_logger("bot.main")
+    settings = app.state.settings
+    components = app.state.components
+
+    # Store all components on app.state for route handler access
+    app.state.orchestrator = components["orchestrator"]
+    app.state.position_manager = components["position_manager"]
+    app.state.pnl_tracker = components["pnl_tracker"]
+    app.state.funding_monitor = components["funding_monitor"]
+    app.state.risk_manager = components["risk_manager"]
+    app.state.ticker_service = components["ticker_service"]
+    app.state.exchange_client = components["exchange_client"]
+    app.state.emergency_controller = components["emergency_controller"]
+    app.state.update_interval = settings.dashboard.update_interval
+
+    # Set up signal handlers now that the event loop is running
+    _setup_signal_handlers(
+        components["orchestrator"], components["emergency_controller"]
     )
 
-    # 17. Connect to exchange and start
+    # Connect to exchange
+    await components["exchange_client"].connect()
+
+    # Start orchestrator as background task
+    bot_task = asyncio.create_task(components["orchestrator"].start())
+
+    # Start dashboard update loop as background task
+    update_task = asyncio.create_task(dashboard_update_loop(app))
+
+    logger.info("lifespan_started", mode=settings.trading.mode)
+
+    yield
+
+    # Shutdown: cancel update loop
+    update_task.cancel()
     try:
-        await exchange_client.connect()
-        await orchestrator.start()
-    finally:
-        await exchange_client.close()
-        logger.info("funding_rate_arbitrage_stopped")
+        await update_task
+    except asyncio.CancelledError:
+        pass
+
+    # Stop orchestrator gracefully
+    await components["orchestrator"].stop()
+
+    # Cancel the bot task
+    bot_task.cancel()
+    try:
+        await bot_task
+    except asyncio.CancelledError:
+        pass
+
+    # Disconnect from exchange
+    await components["exchange_client"].close()
+
+    logger.info("funding_rate_arbitrage_stopped")
+
+
+async def run() -> None:
+    """Run the funding rate arbitrage bot.
+
+    When dashboard is enabled (DASHBOARD_ENABLED=true, the default):
+    - Creates the FastAPI dashboard app with lifespan
+    - Runs both bot and dashboard in a single asyncio event loop via uvicorn
+    - Lifespan manages all component startup/shutdown
+
+    When dashboard is disabled (DASHBOARD_ENABLED=false):
+    - Runs the bot directly without a web server (original behavior)
+    - Signal handlers and exchange connection managed in this function
+    """
+    # 1. Load settings
+    settings = AppSettings()
+
+    # 2. Setup logging
+    setup_logging(settings.log_level)
+    logger = get_logger("bot.main")
+
+    # 3-15. Build all components
+    components = await _build_components(settings)
+
+    if settings.dashboard.enabled:
+        from bot.dashboard.app import create_dashboard_app
+
+        app = create_dashboard_app(lifespan=lifespan)
+        app.state.settings = settings
+        app.state.components = components
+
+        logger.info(
+            "starting_with_dashboard",
+            host=settings.dashboard.host,
+            port=settings.dashboard.port,
+            mode=settings.trading.mode,
+        )
+
+        config = uvicorn.Config(
+            app,
+            host=settings.dashboard.host,
+            port=settings.dashboard.port,
+            log_level="warning",  # Suppress uvicorn access logs
+        )
+        server = uvicorn.Server(config)
+        await server.serve()
+    else:
+        # Dashboard disabled: run bot directly (original behavior)
+        _setup_signal_handlers(
+            components["orchestrator"], components["emergency_controller"]
+        )
+
+        logger.info(
+            "starting_without_dashboard",
+            mode=settings.trading.mode,
+            max_positions=settings.risk.max_simultaneous_positions,
+            max_position_size=str(settings.risk.max_position_size_per_pair),
+            exit_rate=str(settings.risk.exit_funding_rate),
+        )
+
+        try:
+            await components["exchange_client"].connect()
+            await components["orchestrator"].start()
+        finally:
+            await components["exchange_client"].close()
+            logger.info("funding_rate_arbitrage_stopped")
 
 
 def main() -> None:
