@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI
 from fastapi.templating import Jinja2Templates
 
-from bot.dashboard.routes import ws
+from bot.dashboard.routes import actions, api, pages, ws
 from bot.dashboard.routes.ws import hub
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -46,11 +43,9 @@ def create_dashboard_app(lifespan: Any = None) -> FastAPI:
     app.state.hub = hub
 
     # Register routers
+    app.include_router(pages.router)
+    app.include_router(api.router, prefix="/api")
+    app.include_router(actions.router, prefix="/actions")
     app.include_router(ws.router)
-
-    @app.get("/", response_class=HTMLResponse)
-    async def root(request: Request) -> HTMLResponse:
-        """Placeholder root route -- pages router added in Plan 04."""
-        return HTMLResponse(content="Dashboard loading...")
 
     return app
