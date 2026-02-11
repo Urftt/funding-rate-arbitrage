@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 ## Current Position
 
 Phase: 3 of 3 (Dashboard & Analytics)
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Executing
-Last activity: 2026-02-11 — Completed 03-03-PLAN.md (Performance Analytics)
+Last activity: 2026-02-11 — Completed 03-04-PLAN.md (Dashboard Routes & Templates)
 
-Progress: [██████----] 60%
+Progress: [████████--] 80%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 12
+- Total plans completed: 13
 - Average duration: 4 min
-- Total execution time: 0.78 hours
+- Total execution time: 0.83 hours
 
 **By Phase:**
 
@@ -29,10 +29,10 @@ Progress: [██████----] 60%
 |-------|-------|-------|----------|
 | 01-core-trading-engine | 5/5 | 23 min | 5 min |
 | 02-multi-pair-intelligence | 4/4 | 16 min | 4 min |
-| 03-dashboard-analytics | 3/5 | 8 min | 3 min |
+| 03-dashboard-analytics | 4/5 | 11 min | 3 min |
 
 **Recent Trend:**
-- Last 5 plans: 02-03 (4 min), 02-04 (6 min), 03-01 (2 min), 03-02 (3 min), 03-03 (3 min)
+- Last 5 plans: 02-04 (6 min), 03-01 (2 min), 03-02 (3 min), 03-03 (3 min), 03-04 (3 min)
 - Trend: Consistent ~2-6 min/plan
 
 *Updated after each plan completion*
@@ -82,6 +82,10 @@ Recent decisions affecting current work:
 - [03-03] Decimal.sqrt() for standard deviation and annualization -- no float conversion anywhere
 - [03-03] Sample std dev (N-1 denominator) for Sharpe ratio -- correct for small sample sizes
 - [03-03] win_rate_by_pair delegates to win_rate per group via defaultdict -- DRY reuse
+- [03-04] Action routes return HTML partials (not JSON) for direct HTMX panel swap
+- [03-04] All Decimal values serialized as strings in JSON API responses
+- [03-04] WebSocket update loop uses Jinja2 env.get_template() + render() to avoid Request dependency
+- [03-04] Inline JS for timestamp formatting in trade history (avoids custom Jinja2 filter)
 
 ### Pending Todos
 
@@ -95,6 +99,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-11 - Plan 03-03 execution
-Stopped at: Completed 03-03-PLAN.md (Performance Analytics)
+Last session: 2026-02-11 - Plan 03-04 execution
+Stopped at: Completed 03-04-PLAN.md (Dashboard Routes & Templates)
 Resume file: None
