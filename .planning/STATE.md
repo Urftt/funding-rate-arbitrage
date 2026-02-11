@@ -10,28 +10,28 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 ## Current Position
 
 Phase: 1 of 3 (Core Trading Engine)
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Executing
-Last activity: 2026-02-11 — Completed 01-03-PLAN.md (Fee Calculator & Position Sizing)
+Last activity: 2026-02-11 — Completed 01-04-PLAN.md (Execution Layer & Position Management)
 
-Progress: [██████░░░░] 60%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 3
+- Total plans completed: 4
 - Average duration: 4 min
-- Total execution time: 0.22 hours
+- Total execution time: 0.30 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01-core-trading-engine | 3/5 | 13 min | 4 min |
+| 01-core-trading-engine | 4/5 | 18 min | 4 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (4 min), 01-02 (4 min), 01-03 (5 min)
-- Trend: Consistent ~4 min/plan
+- Last 5 plans: 01-01 (4 min), 01-02 (4 min), 01-03 (5 min), 01-04 (5 min)
+- Trend: Consistent ~4-5 min/plan
 
 *Updated after each plan completion*
 
@@ -52,6 +52,9 @@ Recent decisions affecting current work:
 - [01-03] FeeCalculator.is_profitable uses entry_price for exit fee estimate (conservative)
 - [01-03] PositionSizer uses max(spot_step, perp_step) for cross-leg quantity alignment
 - [01-03] Funding payment sign convention: positive = income, negative = expense (Bybit: positive rate = longs pay shorts)
+- [01-04] Custom exceptions in dedicated src/bot/exceptions.py to avoid circular imports between executor and position modules
+- [01-04] PaperExecutor uses 0.05% simulated slippage (5 bps) and 60s staleness threshold for realistic fills
+- [01-04] PositionManager acquires asyncio.Lock for both open and close to prevent concurrent position modifications
 
 ### Pending Todos
 
@@ -65,6 +68,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-11 - Plan 01-03 execution
-Stopped at: Completed 01-03-PLAN.md (Fee Calculator & Position Sizing)
+Last session: 2026-02-11 - Plan 01-04 execution
+Stopped at: Completed 01-04-PLAN.md (Execution Layer & Position Management)
 Resume file: None
