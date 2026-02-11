@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-11)
 
 **Core value:** The bot correctly identifies funding rate opportunities and executes delta-neutral positions that collect funding payments without taking directional risk.
-**Current focus:** Phase 3 in progress — Dashboard & Analytics
+**Current focus:** Phase 3 complete — Dashboard & Analytics
 
 ## Current Position
 
 Phase: 3 of 3 (Dashboard & Analytics)
-Plan: 4 of 5
-Status: Executing
-Last activity: 2026-02-11 — Completed 03-04-PLAN.md (Dashboard Routes & Templates)
+Plan: 5 of 5
+Status: Complete
+Last activity: 2026-02-11 — Completed 03-05-PLAN.md (Main Entry Point Integration)
 
-Progress: [████████--] 80%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 13
+- Total plans completed: 14
 - Average duration: 4 min
-- Total execution time: 0.83 hours
+- Total execution time: 0.88 hours
 
 **By Phase:**
 
@@ -29,11 +29,11 @@ Progress: [████████--] 80%
 |-------|-------|-------|----------|
 | 01-core-trading-engine | 5/5 | 23 min | 5 min |
 | 02-multi-pair-intelligence | 4/4 | 16 min | 4 min |
-| 03-dashboard-analytics | 4/5 | 11 min | 3 min |
+| 03-dashboard-analytics | 5/5 | 14 min | 3 min |
 
 **Recent Trend:**
-- Last 5 plans: 02-04 (6 min), 03-01 (2 min), 03-02 (3 min), 03-03 (3 min), 03-04 (3 min)
-- Trend: Consistent ~2-6 min/plan
+- Last 5 plans: 03-01 (2 min), 03-02 (3 min), 03-03 (3 min), 03-04 (3 min), 03-05 (3 min)
+- Trend: Consistent ~2-3 min/plan
 
 *Updated after each plan completion*
 
@@ -86,6 +86,10 @@ Recent decisions affecting current work:
 - [03-04] All Decimal values serialized as strings in JSON API responses
 - [03-04] WebSocket update loop uses Jinja2 env.get_template() + render() to avoid Request dependency
 - [03-04] Inline JS for timestamp formatting in trade history (avoids custom Jinja2 filter)
+- [03-05] Extracted component wiring into async _build_components() for reuse between dashboard and non-dashboard paths
+- [03-05] Lifespan manages exchange connect/disconnect, orchestrator start/stop, and update loop lifecycle
+- [03-05] uvicorn log_level set to warning to avoid noisy access logs cluttering structlog output
+- [03-05] Signal handlers set up after event loop running via _setup_signal_handlers()
 
 ### Pending Todos
 
@@ -99,6 +103,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-11 - Plan 03-04 execution
-Stopped at: Completed 03-04-PLAN.md (Dashboard Routes & Templates)
+Last session: 2026-02-11 - Plan 03-05 execution
+Stopped at: Completed 03-05-PLAN.md (Main Entry Point Integration) - ALL PLANS COMPLETE
 Resume file: None
