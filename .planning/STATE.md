@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-11)
 
 **Core value:** The bot correctly identifies funding rate opportunities and executes delta-neutral positions that collect funding payments without taking directional risk.
-**Current focus:** Phase 2 complete — ready for Phase 3
+**Current focus:** Phase 3 in progress — Dashboard & Analytics
 
 ## Current Position
 
-Phase: 2 of 3 (Multi-Pair Intelligence) -- COMPLETE
-Plan: 4 of 4
-Status: Phase Complete
-Last activity: 2026-02-11 — Completed 02-04-PLAN.md (Autonomous Orchestrator V2 & Full Wiring)
+Phase: 3 of 3 (Dashboard & Analytics)
+Plan: 2 of 5
+Status: Executing
+Last activity: 2026-02-11 — Completed 03-02-PLAN.md (Data Layer Extensions)
 
-Progress: [██████████] 100%
+Progress: [████------] 40%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 9
+- Total plans completed: 10
 - Average duration: 4 min
-- Total execution time: 0.65 hours
+- Total execution time: 0.68 hours
 
 **By Phase:**
 
@@ -29,10 +29,11 @@ Progress: [██████████] 100%
 |-------|-------|-------|----------|
 | 01-core-trading-engine | 5/5 | 23 min | 5 min |
 | 02-multi-pair-intelligence | 4/4 | 16 min | 4 min |
+| 03-dashboard-analytics | 1/5 | 2 min | 2 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-05 (5 min), 02-01 (3 min), 02-02 (3 min), 02-03 (4 min), 02-04 (6 min)
-- Trend: Consistent ~3-6 min/plan
+- Last 5 plans: 02-01 (3 min), 02-02 (3 min), 02-03 (4 min), 02-04 (6 min), 03-01 (2 min)
+- Trend: Consistent ~2-6 min/plan
 
 *Updated after each plan completion*
 
@@ -71,6 +72,10 @@ Recent decisions affecting current work:
 - [02-04] Emergency controller injected post-construction via set_emergency_controller to resolve circular dependency
 - [02-04] asyncio.Lock for cycle lock (strict mutual exclusion, no overlapping autonomous cycles)
 - [02-04] Graceful stop closes all positions before setting _running=False
+- [03-01] Added jinja2>=3.1 as explicit dependency -- starlette requires it for Jinja2Templates but does not auto-install
+- [03-01] App factory pattern with optional lifespan for main.py injection in Plan 05
+- [03-01] Global DashboardHub instance stored on app.state for route handler access
+- [03-01] format_decimal Jinja2 filter for clean Decimal rendering
 
 ### Pending Todos
 
@@ -84,6 +89,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-11 - Plan 02-04 execution
-Stopped at: Completed 02-04-PLAN.md (Autonomous Orchestrator V2 & Full Wiring) -- Phase 2 complete
+Last session: 2026-02-11 - Plan 03-01 execution
+Stopped at: Completed 03-01-PLAN.md (Dashboard Framework Setup)
 Resume file: None
