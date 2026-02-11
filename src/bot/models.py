@@ -97,3 +97,21 @@ class DeltaStatus:
     drift_pct: Decimal
     is_within_tolerance: bool
     checked_at: float
+
+
+@dataclass
+class OpportunityScore:
+    """Ranked funding rate arbitrage opportunity for a single pair.
+
+    Used by OpportunityRanker to evaluate and compare pairs for autonomous
+    position entry. Net yield accounts for round-trip trading fees.
+    """
+
+    spot_symbol: str
+    perp_symbol: str
+    funding_rate: Decimal  # raw per-period rate
+    funding_interval_hours: int  # 4 or 8
+    volume_24h: Decimal
+    net_yield_per_period: Decimal  # rate minus amortized round-trip fee
+    annualized_yield: Decimal  # net_yield * periods_per_year
+    passes_filters: bool  # volume, rate, spot-availability checks

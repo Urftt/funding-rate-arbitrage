@@ -28,6 +28,22 @@ class TradingSettings(BaseSettings):
     min_funding_rate: Decimal = Decimal("0.0003")  # 0.03%/8h minimum viable per research
     delta_drift_tolerance: Decimal = Decimal("0.02")  # 2% max
     order_timeout_seconds: float = 5.0
+    scan_interval: int = 60  # seconds between autonomous scan cycles
+
+
+class RiskSettings(BaseSettings):
+    """Risk management parameters for Phase 2 multi-pair intelligence."""
+
+    model_config = SettingsConfigDict(env_prefix="RISK_")
+
+    max_position_size_per_pair: Decimal = Decimal("1000")  # USD per pair
+    max_simultaneous_positions: int = 5
+    exit_funding_rate: Decimal = Decimal("0.0001")  # 0.01%/period -- close below this
+    margin_alert_threshold: Decimal = Decimal("0.8")  # alert at 80% MMR
+    margin_critical_threshold: Decimal = Decimal("0.9")  # emergency at 90% MMR
+    min_volume_24h: Decimal = Decimal("1000000")  # $1M minimum
+    min_holding_periods: int = 3  # minimum funding periods to hold
+    paper_virtual_equity: Decimal = Decimal("10000")  # for paper mode margin simulation
 
 
 class FeeSettings(BaseSettings):
@@ -54,3 +70,4 @@ class AppSettings(BaseSettings):
     exchange: ExchangeSettings = ExchangeSettings()
     trading: TradingSettings = TradingSettings()
     fees: FeeSettings = FeeSettings()
+    risk: RiskSettings = RiskSettings()

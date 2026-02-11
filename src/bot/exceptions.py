@@ -27,3 +27,11 @@ class DeltaDriftExceeded(BotError):
 
 class InsufficientSizeError(BotError):
     """Raised when calculated position size is below exchange minimums."""
+
+
+class RiskLimitExceeded(BotError):
+    """Raised when a risk limit prevents opening a new position."""
+
+
+class EmergencyStopTriggered(BotError):
+    """Raised when emergency stop is activated."""
