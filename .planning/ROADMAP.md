@@ -13,7 +13,7 @@ This roadmap delivers a fully automated funding rate arbitrage bot from foundati
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Core Trading Engine** - Paper trading with delta-neutral execution
-- [ ] **Phase 2: Multi-Pair Intelligence** - Real money mode with risk controls
+- [x] **Phase 2: Multi-Pair Intelligence** - Real money mode with risk controls
 - [ ] **Phase 3: Dashboard & Analytics** - Full-featured monitoring and control
 
 ## Phase Details
@@ -51,10 +51,10 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 02-01-PLAN.md -- Foundation: RiskSettings, OpportunityScore model, exchange client extensions
-- [ ] 02-02-PLAN.md -- OpportunityRanker: net yield scoring and ranking (TDD)
-- [ ] 02-03-PLAN.md -- RiskManager expansion and EmergencyController
-- [ ] 02-04-PLAN.md -- Orchestrator autonomous cycle and main.py wiring
+- [x] 02-01-PLAN.md -- Foundation: RiskSettings, OpportunityScore model, exchange client extensions
+- [x] 02-02-PLAN.md -- OpportunityRanker: net yield scoring and ranking (TDD)
+- [x] 02-03-PLAN.md -- RiskManager expansion and EmergencyController
+- [x] 02-04-PLAN.md -- Orchestrator autonomous cycle and main.py wiring
 
 ### Phase 3: Dashboard & Analytics
 **Goal**: User has complete visibility and control over bot operations through a real-time web dashboard.
@@ -79,5 +79,5 @@ Phases execute in numeric order: 1 → 2 → 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Core Trading Engine | 5/5 | ✓ Complete | 2026-02-11 |
-| 2. Multi-Pair Intelligence | 0/4 | In Progress | - |
+| 2. Multi-Pair Intelligence | 4/4 | ✓ Complete | 2026-02-11 |
 | 3. Dashboard & Analytics | 0/TBD | Not started | - |
