@@ -20,6 +20,37 @@ from bot.models import OrderRequest, OrderResult, OrderSide
 
 logger = get_logger(__name__)
 
+
+def simulate_paper_margin(
+    open_position_count: int,
+    max_position_size_usd: Decimal,
+    virtual_equity: Decimal,
+) -> dict:
+    """Simulate margin data for paper trading mode.
+
+    Returns a dict mimicking fetch_wallet_balance_raw() shape so the
+    RiskManager can evaluate margin conditions in paper mode without
+    requiring a live exchange connection.
+
+    Args:
+        open_position_count: Number of currently open positions.
+        max_position_size_usd: Maximum position size per pair in USD.
+        virtual_equity: Total virtual equity for paper account.
+
+    Returns:
+        Dict with accountMMRate, totalMaintenanceMargin, totalEquity,
+        and totalAvailableBalance as string values.
+    """
+    total_used = max_position_size_usd * Decimal(str(open_position_count))
+    mm_rate = total_used / virtual_equity if virtual_equity > 0 else Decimal("0")
+    return {
+        "accountMMRate": str(mm_rate),
+        "totalMaintenanceMargin": str(total_used * Decimal("0.05")),
+        "totalEquity": str(virtual_equity),
+        "totalAvailableBalance": str(virtual_equity - total_used),
+    }
+
+
 # Simulated slippage: 0.05% (5 basis points)
 _SLIPPAGE = Decimal("0.0005")
 

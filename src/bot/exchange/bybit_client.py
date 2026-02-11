@@ -153,3 +153,21 @@ class BybitClient(ExchangeClient):
         """Load and cache market data from Bybit."""
         self._markets = await self._exchange.load_markets()
         return self._markets
+
+    async def fetch_wallet_balance_raw(self) -> dict:
+        """Fetch raw Bybit unified account wallet balance.
+
+        Returns the first account entry from the Bybit wallet balance response,
+        containing accountMMRate, totalMaintenanceMargin, totalEquity, and
+        totalAvailableBalance fields.
+        """
+        balance = await self._exchange.fetch_balance(params={"type": "UNIFIED"})
+        raw_info = balance.get("info", {})
+        result_list = raw_info.get("result", {}).get("list", [])
+        if result_list:
+            return result_list[0]
+        return {}
+
+    def get_markets(self) -> dict:
+        """Return cached markets dict loaded at connect() time."""
+        return self._markets

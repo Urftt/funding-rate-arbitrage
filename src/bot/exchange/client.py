@@ -74,3 +74,25 @@ class ExchangeClient(ABC):
     async def load_markets(self) -> dict:
         """Load and cache market/instrument data from the exchange."""
         ...
+
+    @abstractmethod
+    async def fetch_wallet_balance_raw(self) -> dict:
+        """Fetch raw wallet balance data for margin monitoring.
+
+        Returns a dict containing exchange-specific fields:
+            - accountMMRate: Current maintenance margin rate as string
+            - totalMaintenanceMargin: Total maintenance margin in USD as string
+            - totalEquity: Total account equity in USD as string
+            - totalAvailableBalance: Available balance in USD as string
+        """
+        ...
+
+    @abstractmethod
+    def get_markets(self) -> dict:
+        """Return the cached markets dict from load_markets().
+
+        This is synchronous since markets are loaded at connect() time.
+        Used by OpportunityRanker to derive spot symbols without
+        triggering new API calls.
+        """
+        ...
