@@ -12,7 +12,7 @@ This roadmap delivers a fully automated funding rate arbitrage bot from foundati
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Core Trading Engine** - Paper trading with delta-neutral execution
+- [x] **Phase 1: Core Trading Engine** - Paper trading with delta-neutral execution
 - [ ] **Phase 2: Multi-Pair Intelligence** - Real money mode with risk controls
 - [ ] **Phase 3: Dashboard & Analytics** - Full-featured monitoring and control
 
@@ -31,11 +31,11 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 5 plans
 
 Plans:
-- [ ] 01-01-PLAN.md -- Foundation: project scaffold, config, models, logging
-- [ ] 01-02-PLAN.md -- Exchange client (Bybit via ccxt) and funding rate monitor
-- [ ] 01-03-PLAN.md -- Fee calculator and position sizing (TDD)
-- [ ] 01-04-PLAN.md -- Executor pattern, paper executor, position manager, delta validator
-- [ ] 01-05-PLAN.md -- P&L tracker and orchestrator integration
+- [x] 01-01-PLAN.md -- Foundation: project scaffold, config, models, logging
+- [x] 01-02-PLAN.md -- Exchange client (Bybit via ccxt) and funding rate monitor
+- [x] 01-03-PLAN.md -- Fee calculator and position sizing (TDD)
+- [x] 01-04-PLAN.md -- Executor pattern, paper executor, position manager, delta validator
+- [x] 01-05-PLAN.md -- P&L tracker and orchestrator integration
 
 ### Phase 2: Multi-Pair Intelligence
 **Goal**: Bot autonomously scans all pairs, ranks opportunities, executes profitable trades, and enforces comprehensive risk limits.
@@ -75,6 +75,6 @@ Phases execute in numeric order: 1 → 2 → 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Core Trading Engine | 0/5 | Planned | - |
+| 1. Core Trading Engine | 5/5 | ✓ Complete | 2026-02-11 |
 | 2. Multi-Pair Intelligence | 0/TBD | Not started | - |
 | 3. Dashboard & Analytics | 0/TBD | Not started | - |

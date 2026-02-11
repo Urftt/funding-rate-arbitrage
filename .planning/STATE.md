@@ -5,7 +5,7 @@
 See: .planning/PROJECT.md (updated 2026-02-11)
 
 **Core value:** The bot correctly identifies funding rate opportunities and executes delta-neutral positions that collect funding payments without taking directional risk.
-**Current focus:** Phase 1 - Core Trading Engine
+**Current focus:** Phase 1 complete — ready for Phase 2 planning
 
 ## Current Position
 
