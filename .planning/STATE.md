@@ -5,17 +5,17 @@
 See: .planning/PROJECT.md (updated 2026-02-12)
 
 **Core value:** The bot correctly identifies funding rate opportunities and executes delta-neutral positions that collect funding payments without taking directional risk.
-**Current focus:** v1.1 Strategy Intelligence -- Phase 5 in progress
+**Current focus:** v1.1 Strategy Intelligence -- Phase 5 complete, ready for Phase 6
 
 ## Current Position
 
 Milestone: v1.1 Strategy Intelligence
-Phase: 5 of 7 (Signal Analysis Integration)
-Plan: 2 of 3 in current phase
-Status: Executing
-Last activity: 2026-02-12 -- Completed 05-02-PLAN.md (basis spread + volume trend signals)
+Phase: 5 of 7 (Signal Analysis Integration) -- COMPLETE
+Plan: 3 of 3 in current phase
+Status: Phase Complete
+Last activity: 2026-02-12 -- Completed 05-03-PLAN.md (SignalEngine + orchestrator integration)
 
-Progress: [██████████████░░░░░░] 71% (v1.0 complete, v1.1 phase 5: 2/3 plans)
+Progress: [████████████████░░░░] 79% (v1.0 complete, v1.1 phase 5: 3/3 plans)
 
 ## Performance Metrics
 
@@ -37,7 +37,7 @@ Progress: [██████████████░░░░░░] 71% (v1
 | Phase | Plans | Duration | Status |
 |-------|-------|----------|--------|
 | 4. Historical Data Foundation | 3/3 | 19min | Complete |
-| 5. Signal Analysis Integration | 2/3 | 4min | In Progress |
+| 5. Signal Analysis Integration | 3/3 | 11min | Complete |
 
 ## Accumulated Context
 
@@ -63,6 +63,9 @@ Recent decisions affecting current work:
 - Index prices cached in separate dict on FundingMonitor (not modifying FundingRateData v1.0 type)
 - Volume trend is a hard filter: volume_ok=False rejects pair regardless of composite score
 - Graceful degradation: insufficient candle data returns True (don't reject for lack of data)
+- Spot symbol derivation duplicated in SignalEngine (not imported from ranker) for module independence
+- Composite score uses rate as proxy for net_yield; actual fee check remains in PositionManager
+- Composite mode with signal_engine=None falls back to simple path (defensive)
 
 ### Pending Todos
 
@@ -77,6 +80,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: Completed 05-02-PLAN.md -- basis spread and volume trend signals
+Stopped at: Completed 05-03-PLAN.md -- SignalEngine + orchestrator integration (Phase 5 complete)
 Resume file: None
-Next step: Execute 05-03-PLAN.md (SignalEngine integration and composite scoring)
+Next step: Plan Phase 06 (Backtest Engine)
