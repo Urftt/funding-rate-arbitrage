@@ -43,6 +43,7 @@ from bot.risk.manager import RiskManager
 if TYPE_CHECKING:
     from bot.data.fetcher import HistoricalDataFetcher
     from bot.data.store import HistoricalDataStore
+    from bot.position.dynamic_sizer import DynamicSizer
     from bot.signals.engine import SignalEngine
 
 from bot.data.pair_selector import select_top_pairs
@@ -93,6 +94,7 @@ class Orchestrator:
         historical_settings: HistoricalDataSettings | None = None,
         signal_engine: SignalEngine | None = None,
         signal_settings: SignalSettings | None = None,
+        dynamic_sizer: DynamicSizer | None = None,
     ) -> None:
         self._settings = settings
         self._exchange_client = exchange_client
@@ -110,6 +112,7 @@ class Orchestrator:
         self._historical_settings = historical_settings
         self._signal_engine = signal_engine
         self._signal_settings = signal_settings
+        self._dynamic_sizer = dynamic_sizer
         self._running = False
         self._last_funding_check: float = 0.0
         self._cycle_lock = asyncio.Lock()
@@ -448,11 +451,34 @@ class Orchestrator:
                         error=str(e),
                     )
 
+    def _compute_current_exposure(self) -> Decimal:
+        """Compute total portfolio exposure as sum of open position notional values.
+
+        Returns:
+            Sum of (quantity * perp_entry_price) for all open positions.
+        """
+        total = Decimal("0")
+        for pos in self._position_manager.get_open_positions():
+            total += pos.quantity * pos.perp_entry_price
+        return total
+
     async def _open_profitable_positions_composite(
         self,
         composite_scores: list,
     ) -> None:
-        """Open positions on top composite-scored pairs within risk limits (v1.1)."""
+        """Open positions on top composite-scored pairs within risk limits (v1.1).
+
+        When dynamic_sizer is active, computes a signal-adjusted budget for each
+        position and tracks portfolio exposure across opens within the same cycle.
+        When dynamic_sizer is None, existing behavior is unchanged.
+        """
+        # Pre-compute exposure if dynamic sizing is active
+        current_exposure = (
+            self._compute_current_exposure()
+            if self._dynamic_sizer is not None
+            else Decimal("0")
+        )
+
         for cs in composite_scores:
             if not cs.signal.passes_entry:
                 continue
@@ -472,13 +498,51 @@ class Orchestrator:
                 continue
 
             try:
-                await self.open_position(opp.spot_symbol, opp.perp_symbol)
-                logger.info(
-                    "composite_position_opened",
-                    spot_symbol=opp.spot_symbol,
-                    perp_symbol=opp.perp_symbol,
-                    composite_score=str(cs.signal.score),
-                )
+                if self._dynamic_sizer is not None:
+                    # Dynamic sizing path: compute signal-adjusted budget
+                    budget = self._dynamic_sizer.compute_signal_budget(
+                        signal_score=cs.signal.score,
+                        current_exposure=current_exposure,
+                    )
+                    if budget is None:
+                        logger.info(
+                            "portfolio_exposure_cap_reached",
+                            symbol=opp.perp_symbol,
+                            current_exposure=str(current_exposure),
+                        )
+                        break  # No more budget for any pair
+
+                    balance_data = await self._exchange_client.fetch_balance()
+                    free = Decimal(
+                        str(balance_data.get("USDT", {}).get("free", 0))
+                    )
+                    available_balance = min(free, budget)
+
+                    position = await self.open_position(
+                        opp.spot_symbol,
+                        opp.perp_symbol,
+                        available_balance=available_balance,
+                    )
+                    # Update exposure after successful open
+                    current_exposure += position.quantity * position.perp_entry_price
+
+                    logger.info(
+                        "composite_position_opened",
+                        spot_symbol=opp.spot_symbol,
+                        perp_symbol=opp.perp_symbol,
+                        composite_score=str(cs.signal.score),
+                        signal_score=str(cs.signal.score),
+                        budget=str(budget),
+                    )
+                else:
+                    # Static sizing path: unchanged v1.0 behavior
+                    await self.open_position(opp.spot_symbol, opp.perp_symbol)
+                    logger.info(
+                        "composite_position_opened",
+                        spot_symbol=opp.spot_symbol,
+                        perp_symbol=opp.perp_symbol,
+                        composite_score=str(cs.signal.score),
+                    )
             except Exception as e:
                 logger.error(
                     "composite_open_failed",

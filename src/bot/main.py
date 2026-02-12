@@ -60,6 +60,7 @@ from bot.position.manager import PositionManager
 from bot.position.sizing import PositionSizer
 from bot.risk.emergency import EmergencyController
 from bot.risk.manager import RiskManager
+from bot.position.dynamic_sizer import DynamicSizer
 from bot.signals.engine import SignalEngine
 
 
@@ -166,6 +167,15 @@ async def _build_components(settings: AppSettings) -> dict[str, Any]:
             funding_monitor=funding_monitor,
         )
 
+    # 14.7. Create dynamic sizer (optional v1.1 signal-conviction sizing)
+    dynamic_sizer = None
+    if settings.sizing.enabled and settings.trading.strategy_mode == "composite":
+        dynamic_sizer = DynamicSizer(
+            position_sizer=position_sizer,
+            settings=settings.sizing,
+            max_position_size_usd=settings.trading.max_position_size_usd,
+        )
+
     orchestrator = Orchestrator(
         settings=settings,
         exchange_client=exchange_client,
@@ -183,6 +193,7 @@ async def _build_components(settings: AppSettings) -> dict[str, Any]:
         historical_settings=settings.historical if settings.historical.enabled else None,
         signal_engine=signal_engine,
         signal_settings=settings.signal if signal_engine else None,
+        dynamic_sizer=dynamic_sizer,
     )
 
     # 15. Create emergency controller (needs orchestrator.stop as callback)
