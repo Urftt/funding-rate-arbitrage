@@ -144,6 +144,23 @@ class BacktestSettings(BaseSettings):
     max_concurrent_positions: int = 5
 
 
+class DynamicSizingSettings(BaseSettings):
+    """Dynamic position sizing configuration (Phase 7: SIZE-01, SIZE-02).
+
+    Controls signal-conviction-based allocation scaling and portfolio exposure cap.
+    The per-pair max comes from TradingSettings.max_position_size_usd (not duplicated here).
+
+    All fields configurable via SIZING_ environment variable prefix.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="SIZING_")
+
+    enabled: bool = False  # Default off; preserves v1.0 static sizing
+    min_allocation_fraction: Decimal = Decimal("0.3")  # Weakest signal -> 30% of per-pair max
+    max_allocation_fraction: Decimal = Decimal("1.0")  # Strongest signal -> 100%
+    max_portfolio_exposure: Decimal = Decimal("5000")  # Total USD exposure cap
+
+
 @dataclass
 class RuntimeConfig:
     """Mutable runtime config overlay. Non-None fields override BaseSettings values.
@@ -179,3 +196,4 @@ class AppSettings(BaseSettings):
     historical: HistoricalDataSettings = HistoricalDataSettings()
     signal: SignalSettings = SignalSettings()
     backtest: BacktestSettings = BacktestSettings()
+    sizing: DynamicSizingSettings = DynamicSizingSettings()
