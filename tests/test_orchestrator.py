@@ -1141,3 +1141,142 @@ class TestExecutorSwapProducesIdenticalBehavior:
             assert pattern not in pm_source, (
                 f"PositionManager branches on executor type: found '{pattern}'"
             )
+
+
+# =============================================================================
+# Phase 5: Composite Strategy Mode Tests
+# =============================================================================
+
+
+class TestCompositeStrategyMode:
+    """Tests for strategy_mode branching in orchestrator."""
+
+    @pytest.mark.asyncio
+    async def test_composite_mode_uses_signal_engine(
+        self,
+        settings: AppSettings,
+        mock_exchange_client: AsyncMock,
+        funding_monitor: FundingMonitor,
+        ticker_service: TickerService,
+        mock_position_manager: AsyncMock,
+        pnl_tracker: PnLTracker,
+        delta_validator: DeltaValidator,
+        fee_calculator: FeeCalculator,
+        mock_risk_manager: MagicMock,
+        mock_ranker: MagicMock,
+        mock_emergency_controller: AsyncMock,
+    ) -> None:
+        """Composite mode calls signal_engine, not ranker."""
+        from bot.config import SignalSettings
+        from bot.signals.models import CompositeOpportunityScore, CompositeSignal, TrendDirection
+
+        # Set strategy_mode to composite
+        settings.trading.strategy_mode = "composite"
+
+        # Create mock signal engine
+        mock_signal_engine = AsyncMock()
+        mock_signal_engine.score_opportunities.return_value = []
+        mock_signal_engine.score_for_exit.return_value = {}
+
+        signal_settings = SignalSettings()
+
+        orch = Orchestrator(
+            settings=settings,
+            exchange_client=mock_exchange_client,
+            funding_monitor=funding_monitor,
+            ticker_service=ticker_service,
+            position_manager=mock_position_manager,
+            pnl_tracker=pnl_tracker,
+            delta_validator=delta_validator,
+            fee_calculator=fee_calculator,
+            risk_manager=mock_risk_manager,
+            ranker=mock_ranker,
+            emergency_controller=mock_emergency_controller,
+            signal_engine=mock_signal_engine,
+            signal_settings=signal_settings,
+        )
+
+        # Add funding rates so cycle doesn't return early
+        funding_monitor._funding_rates["BTC/USDT:USDT"] = FundingRateData(
+            symbol="BTC/USDT:USDT",
+            rate=Decimal("0.0005"),
+            next_funding_time=0,
+            mark_price=Decimal("50000"),
+            volume_24h=Decimal("5000000"),
+        )
+
+        await orch._autonomous_cycle()
+
+        # Signal engine should be called, NOT ranker
+        mock_signal_engine.score_opportunities.assert_called_once()
+        mock_ranker.rank_opportunities.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_simple_mode_uses_ranker(
+        self,
+        orchestrator: Orchestrator,
+        mock_ranker: MagicMock,
+        funding_monitor: FundingMonitor,
+    ) -> None:
+        """Simple mode (default) calls ranker, not signal_engine."""
+        # Default settings have strategy_mode="simple"
+        # orchestrator fixture has no signal_engine (it's None)
+
+        funding_monitor._funding_rates["BTC/USDT:USDT"] = FundingRateData(
+            symbol="BTC/USDT:USDT",
+            rate=Decimal("0.0005"),
+            next_funding_time=0,
+            mark_price=Decimal("50000"),
+            volume_24h=Decimal("5000000"),
+        )
+
+        await orchestrator._autonomous_cycle()
+
+        # Ranker should be called (v1.0 path)
+        mock_ranker.rank_opportunities.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_composite_mode_without_engine_falls_back_to_simple(
+        self,
+        settings: AppSettings,
+        mock_exchange_client: AsyncMock,
+        funding_monitor: FundingMonitor,
+        ticker_service: TickerService,
+        mock_position_manager: AsyncMock,
+        pnl_tracker: PnLTracker,
+        delta_validator: DeltaValidator,
+        fee_calculator: FeeCalculator,
+        mock_risk_manager: MagicMock,
+        mock_ranker: MagicMock,
+        mock_emergency_controller: AsyncMock,
+    ) -> None:
+        """Composite mode with signal_engine=None falls back to simple path."""
+        settings.trading.strategy_mode = "composite"
+
+        orch = Orchestrator(
+            settings=settings,
+            exchange_client=mock_exchange_client,
+            funding_monitor=funding_monitor,
+            ticker_service=ticker_service,
+            position_manager=mock_position_manager,
+            pnl_tracker=pnl_tracker,
+            delta_validator=delta_validator,
+            fee_calculator=fee_calculator,
+            risk_manager=mock_risk_manager,
+            ranker=mock_ranker,
+            emergency_controller=mock_emergency_controller,
+            signal_engine=None,  # No engine despite composite mode
+        )
+
+        funding_monitor._funding_rates["BTC/USDT:USDT"] = FundingRateData(
+            symbol="BTC/USDT:USDT",
+            rate=Decimal("0.0005"),
+            next_funding_time=0,
+            mark_price=Decimal("50000"),
+            volume_24h=Decimal("5000000"),
+        )
+
+        await orch._autonomous_cycle()
+
+        # Falls back to ranker (simple path)
+        mock_ranker.rank_opportunities.assert_called_once()

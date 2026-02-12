@@ -26,13 +26,13 @@ import time
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from bot.config import AppSettings, HistoricalDataSettings, RuntimeConfig
+from bot.config import AppSettings, HistoricalDataSettings, RuntimeConfig, SignalSettings
 from bot.exchange.client import ExchangeClient
 from bot.logging import get_logger
 from bot.market_data.funding_monitor import FundingMonitor
 from bot.market_data.opportunity_ranker import OpportunityRanker
 from bot.market_data.ticker_service import TickerService
-from bot.models import OpportunityScore, Position
+from bot.models import FundingRateData, OpportunityScore, Position
 from bot.pnl.fee_calculator import FeeCalculator
 from bot.pnl.tracker import PnLTracker
 from bot.position.delta_validator import DeltaValidator
@@ -43,6 +43,7 @@ from bot.risk.manager import RiskManager
 if TYPE_CHECKING:
     from bot.data.fetcher import HistoricalDataFetcher
     from bot.data.store import HistoricalDataStore
+    from bot.signals.engine import SignalEngine
 
 from bot.data.pair_selector import select_top_pairs
 
@@ -90,6 +91,8 @@ class Orchestrator:
         data_fetcher: HistoricalDataFetcher | None = None,
         data_store: HistoricalDataStore | None = None,
         historical_settings: HistoricalDataSettings | None = None,
+        signal_engine: SignalEngine | None = None,
+        signal_settings: SignalSettings | None = None,
     ) -> None:
         self._settings = settings
         self._exchange_client = exchange_client
@@ -105,6 +108,8 @@ class Orchestrator:
         self._data_fetcher = data_fetcher
         self._data_store = data_store
         self._historical_settings = historical_settings
+        self._signal_engine = signal_engine
+        self._signal_settings = signal_settings
         self._running = False
         self._last_funding_check: float = 0.0
         self._cycle_lock = asyncio.Lock()
@@ -270,28 +275,32 @@ class Orchestrator:
             logger.debug("no_funding_rates_available")
             return
 
-        # 2. RANK: Score each pair by net yield after fees
+        # 2-3. STRATEGY: Branch on strategy mode
         markets = self._exchange_client.get_markets()
-        opportunities = self._ranker.rank_opportunities(
-            funding_rates=all_rates,
-            markets=markets,
-            min_rate=self._settings.trading.min_funding_rate,
-            min_volume_24h=self._settings.risk.min_volume_24h,
-            min_holding_periods=self._settings.risk.min_holding_periods,
-        )
-
-        if opportunities:
-            top = opportunities[0]
-            logger.info(
-                "opportunities_ranked",
-                count=len(opportunities),
-                top_pair=top.perp_symbol,
-                top_annualized_yield=str(top.annualized_yield),
+        if (
+            self._settings.trading.strategy_mode == "composite"
+            and self._signal_engine is not None
+        ):
+            await self._composite_strategy_cycle(all_rates, markets)
+        else:
+            # v1.0 path: UNCHANGED
+            opportunities = self._ranker.rank_opportunities(
+                funding_rates=all_rates,
+                markets=markets,
+                min_rate=self._settings.trading.min_funding_rate,
+                min_volume_24h=self._settings.risk.min_volume_24h,
+                min_holding_periods=self._settings.risk.min_holding_periods,
             )
-
-        # 3. DECIDE & EXECUTE: Close unprofitable, open profitable
-        await self._close_unprofitable_positions()
-        await self._open_profitable_positions(opportunities)
+            if opportunities:
+                top = opportunities[0]
+                logger.info(
+                    "opportunities_ranked",
+                    count=len(opportunities),
+                    top_pair=top.perp_symbol,
+                    top_annualized_yield=str(top.annualized_yield),
+                )
+            await self._close_unprofitable_positions()
+            await self._open_profitable_positions(opportunities)
 
         # 4. MONITOR: Check margin ratio
         await self._check_margin_ratio()
@@ -358,6 +367,121 @@ class Orchestrator:
             except Exception as e:
                 logger.error(
                     "autonomous_open_failed",
+                    symbol=opp.perp_symbol,
+                    error=str(e),
+                )
+
+    async def _composite_strategy_cycle(
+        self,
+        all_rates: list[FundingRateData],
+        markets: dict,
+    ) -> None:
+        """Composite signal strategy cycle (v1.1).
+
+        Uses SignalEngine to compute composite scores for all pairs,
+        then makes entry/exit decisions based on composite thresholds.
+        """
+        composite_scores = await self._signal_engine.score_opportunities(
+            funding_rates=all_rates,
+            markets=markets,
+        )
+
+        if composite_scores:
+            top = composite_scores[0]
+            logger.info(
+                "composite_opportunities_ranked",
+                count=len(composite_scores),
+                top_pair=top.opportunity.perp_symbol,
+                top_composite_score=str(top.signal.score),
+            )
+
+        # EXIT: Close positions where composite score dropped below exit threshold
+        await self._close_unprofitable_positions_composite(all_rates, markets)
+
+        # ENTRY: Open positions with high composite scores
+        await self._open_profitable_positions_composite(composite_scores)
+
+    async def _close_unprofitable_positions_composite(
+        self,
+        all_rates: list[FundingRateData],
+        markets: dict,
+    ) -> None:
+        """Close positions where composite score dropped below exit threshold (v1.1)."""
+        open_positions = self._position_manager.get_open_positions()
+        if not open_positions:
+            return
+
+        symbols = [p.perp_symbol for p in open_positions]
+        exit_scores = await self._signal_engine.score_for_exit(
+            symbols=symbols,
+            funding_rates=all_rates,
+            markets=markets,
+        )
+
+        exit_threshold = (
+            self._signal_settings.exit_threshold
+            if self._signal_settings
+            else Decimal("0.3")
+        )
+
+        for position in open_positions:
+            signal = exit_scores.get(position.perp_symbol)
+            # Close if: no signal data available OR score below exit threshold
+            if signal is None or signal.score < exit_threshold:
+                reason = (
+                    "signal_unavailable"
+                    if signal is None
+                    else f"composite_below_exit_{signal.score}"
+                )
+                logger.info(
+                    "closing_position_composite",
+                    position_id=position.id,
+                    perp_symbol=position.perp_symbol,
+                    reason=reason,
+                )
+                try:
+                    await self.close_position(position.id)
+                except Exception as e:
+                    logger.error(
+                        "close_composite_failed",
+                        position_id=position.id,
+                        error=str(e),
+                    )
+
+    async def _open_profitable_positions_composite(
+        self,
+        composite_scores: list,
+    ) -> None:
+        """Open positions on top composite-scored pairs within risk limits (v1.1)."""
+        for cs in composite_scores:
+            if not cs.signal.passes_entry:
+                continue
+
+            opp = cs.opportunity
+            can_open, reason = self._risk_manager.check_can_open(
+                symbol=opp.perp_symbol,
+                position_size_usd=self._settings.trading.max_position_size_usd,
+                current_positions=self._position_manager.get_open_positions(),
+            )
+            if not can_open:
+                logger.debug(
+                    "risk_check_rejected_composite",
+                    symbol=opp.perp_symbol,
+                    reason=reason,
+                )
+                continue
+
+            try:
+                await self.open_position(opp.spot_symbol, opp.perp_symbol)
+                logger.info(
+                    "composite_position_opened",
+                    spot_symbol=opp.spot_symbol,
+                    perp_symbol=opp.perp_symbol,
+                    composite_score=str(cs.signal.score),
+                )
+            except Exception as e:
+                logger.error(
+                    "composite_open_failed",
                     symbol=opp.perp_symbol,
                     error=str(e),
                 )

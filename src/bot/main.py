@@ -43,6 +43,7 @@ from bot.market_data.funding_monitor import FundingMonitor
 from bot.market_data.opportunity_ranker import OpportunityRanker
 from bot.market_data.ticker_service import TickerService
 from bot.orchestrator import Orchestrator
+from bot.signals.engine import SignalEngine
 from bot.pnl.fee_calculator import FeeCalculator
 from bot.pnl.tracker import PnLTracker
 from bot.position.delta_validator import DeltaValidator
@@ -145,6 +146,16 @@ async def _build_components(settings: AppSettings) -> dict[str, Any]:
             settings=settings.historical,
         )
 
+    # 14.6. Create signal engine (optional v1.1 composite signals)
+    signal_engine = None
+    if settings.trading.strategy_mode == "composite":
+        signal_engine = SignalEngine(
+            signal_settings=settings.signal,
+            data_store=data_store,
+            ticker_service=ticker_service,
+            funding_monitor=funding_monitor,
+        )
+
     orchestrator = Orchestrator(
         settings=settings,
         exchange_client=exchange_client,
@@ -160,6 +171,8 @@ async def _build_components(settings: AppSettings) -> dict[str, Any]:
         data_fetcher=data_fetcher,
         data_store=data_store,
         historical_settings=settings.historical if settings.historical.enabled else None,
+        signal_engine=signal_engine,
+        signal_settings=settings.signal if signal_engine else None,
     )
 
     # 15. Create emergency controller (needs orchestrator.stop as callback)
@@ -187,6 +200,7 @@ async def _build_components(settings: AppSettings) -> dict[str, Any]:
         "historical_db": historical_db,
         "data_store": data_store,
         "data_fetcher": data_fetcher,
+        "signal_engine": signal_engine,
     }
 
 
