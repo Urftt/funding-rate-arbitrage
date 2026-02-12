@@ -24,7 +24,7 @@ See `.planning/milestones/v1.0-ROADMAP.md` for full details.
 
 - [x] **Phase 4: Historical Data Foundation** - Fetch, store, and persist historical funding rate and price data from Bybit (completed 2026-02-12)
 - [x] **Phase 5: Signal Analysis & Integration** - Compute composite entry/exit signals from trends and persistence, wire into orchestrator (completed 2026-02-12)
-- [ ] **Phase 6: Backtest Engine** - Replay historical data through strategy pipeline with parameter optimization and results visualization
+- [x] **Phase 6: Backtest Engine** - Replay historical data through strategy pipeline with parameter optimization and results visualization (completed 2026-02-12)
 - [ ] **Phase 7: Dynamic Position Sizing** - Scale position sizes by signal conviction within risk constraints
 
 ## Phase Details
@@ -76,10 +76,10 @@ Plans:
 **Plans:** 4 plans
 
 Plans:
-- [ ] 06-01-PLAN.md -- Backtest models, config, BacktestExecutor, BacktestDataStoreWrapper, PnLTracker time injection
-- [ ] 06-02-PLAN.md -- BacktestEngine event-driven replay loop and run_backtest() runner
-- [ ] 06-03-PLAN.md -- ParameterSweep grid search engine and CLI backtest commands
-- [ ] 06-04-PLAN.md -- Dashboard backtest page with equity curve chart and parameter heatmap
+- [x] 06-01-PLAN.md -- Backtest models, config, BacktestExecutor, BacktestDataStoreWrapper, PnLTracker time injection
+- [x] 06-02-PLAN.md -- BacktestEngine event-driven replay loop and run_backtest() runner
+- [x] 06-03-PLAN.md -- ParameterSweep grid search engine and CLI backtest commands
+- [x] 06-04-PLAN.md -- Dashboard backtest page with equity curve chart and parameter heatmap
 
 ### Phase 7: Dynamic Position Sizing
 **Goal**: Position sizes scale with signal conviction so higher-confidence opportunities get larger allocations, constrained by portfolio-level risk limits
@@ -106,5 +106,5 @@ Phases execute in numeric order: 4 -> 5 -> 6 -> 7
 | 3. Dashboard & Analytics | v1.0 | 5/5 | Complete | 2026-02-11 |
 | 4. Historical Data Foundation | v1.1 | 3/3 | Complete | 2026-02-12 |
 | 5. Signal Analysis & Integration | v1.1 | 3/3 | Complete | 2026-02-12 |
-| 6. Backtest Engine | v1.1 | 0/4 | Not started | - |
+| 6. Backtest Engine | v1.1 | 4/4 | Complete | 2026-02-12 |
 | 7. Dynamic Position Sizing | v1.1 | 0/TBD | Not started | - |
