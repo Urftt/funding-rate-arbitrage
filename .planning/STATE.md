@@ -11,11 +11,11 @@ See: .planning/PROJECT.md (updated 2026-02-12)
 
 Milestone: v1.1 Strategy Intelligence
 Phase: 6 of 7 (Backtest Engine)
-Plan: 1 of 4 in current phase -- COMPLETE
+Plan: 2 of 4 in current phase -- COMPLETE
 Status: Executing
-Last activity: 2026-02-12 -- Completed 06-01-PLAN.md (backtest foundation types + components)
+Last activity: 2026-02-12 -- Completed 06-02-PLAN.md (core backtest engine + runner)
 
-Progress: [█████████████████░░░] 83% (v1.0 complete, v1.1 phase 6: 1/4 plans)
+Progress: [██████████████████░░] 88% (v1.0 complete, v1.1 phase 6: 2/4 plans)
 
 ## Performance Metrics
 
@@ -38,7 +38,7 @@ Progress: [█████████████████░░░] 83% (v1
 |-------|-------|----------|--------|
 | 4. Historical Data Foundation | 3/3 | 19min | Complete |
 | 5. Signal Analysis Integration | 3/3 | 11min | Complete |
-| 6. Backtest Engine | 1/4 | 4min | In Progress |
+| 6. Backtest Engine | 2/4 | 8min | In Progress |
 
 ## Accumulated Context
 
@@ -70,6 +70,10 @@ Recent decisions affecting current work:
 - BacktestExecutor uses injected prices (set_prices) rather than TickerService for full isolation
 - BacktestDataStoreWrapper uses min(until_ms, current_time) cap for look-ahead prevention
 - PnLTracker time_fn defaults to time.time for backward compatibility
+- Engine creates its own component instances rather than accepting pre-built ones -- simplifies API and ensures correct wiring
+- Simple strategy uses inline threshold comparison (not OpportunityRanker) since backtesting single-symbol
+- Generous InstrumentInfo for backtest mode (no exchange constraint validation needed)
+- Composite mode falls back to simple strategy on error for resilience
 
 ### Pending Todos
 
@@ -84,6 +88,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: Completed 06-01-PLAN.md -- backtest foundation types + components
+Stopped at: Completed 06-02-PLAN.md -- core backtest engine + runner
 Resume file: None
-Next step: Execute 06-02-PLAN.md (BacktestEngine orchestrator)
+Next step: Execute 06-03-PLAN.md (parameter sweep)
