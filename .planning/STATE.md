@@ -5,17 +5,17 @@
 See: .planning/PROJECT.md (updated 2026-02-12)
 
 **Core value:** The bot correctly identifies funding rate opportunities and executes delta-neutral positions that collect funding payments without taking directional risk.
-**Current focus:** v1.1 Strategy Intelligence -- Phase 7 in progress
+**Current focus:** v1.1 Strategy Intelligence -- COMPLETE
 
 ## Current Position
 
 Milestone: v1.1 Strategy Intelligence
-Phase: 7 of 7 (Dynamic Position Sizing) -- IN PROGRESS
-Plan: 1 of 2 in current phase -- COMPLETE
-Status: Plan 07-01 complete -- DynamicSizer core with TDD
-Last activity: 2026-02-12 -- Plan 07-01 execution complete
+Phase: 7 of 7 (Dynamic Position Sizing) -- COMPLETE
+Plan: 2 of 2 in current phase -- COMPLETE
+Status: Phase 7 complete -- DynamicSizer core + integration
+Last activity: 2026-02-12 -- Plan 07-02 execution complete
 
-Progress: [████████████████████] 98% (v1.0 complete, v1.1 phase 7: 1/2 plans)
+Progress: [████████████████████] 100% (v1.0 complete, v1.1 complete)
 
 ## Performance Metrics
 
@@ -39,7 +39,7 @@ Progress: [████████████████████] 98% (v1
 | 4. Historical Data Foundation | 3/3 | 19min | Complete |
 | 5. Signal Analysis Integration | 3/3 | 11min | Complete |
 | 6. Backtest Engine | 4/4 | 18min | Complete |
-| 7. Dynamic Position Sizing | 1/2 | 3min | In Progress |
+| 7. Dynamic Position Sizing | 2/2 | 6min | Complete |
 
 ## Accumulated Context
 
@@ -85,6 +85,9 @@ Recent decisions affecting current work:
 - DynamicSizingSettings does NOT duplicate max_position_size_usd -- reads from TradingSettings via constructor injection
 - Linear interpolation for score-to-fraction mapping (simplest, configurable, backtestable)
 - DynamicSizer delegates to PositionSizer for exchange constraints (SIZE-03 mandate)
+- Orchestrator breaks out of composite loop (not continue) when portfolio cap reached
+- BacktestEngine stores _last_signal_score on self rather than changing _composite_decision return type
+- Backtest dynamic sizer uses initial_capital as max_position_size_usd (natural backtest boundary)
 
 ### Pending Todos
 
@@ -99,6 +102,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: Completed 07-01-PLAN.md -- DynamicSizer core with TDD
+Stopped at: Completed 07-02-PLAN.md -- DynamicSizer integration (Phase 7 complete, v1.1 complete)
 Resume file: None
-Next step: Execute 07-02-PLAN.md (DynamicSizer integration)
+Next step: v1.1 Strategy Intelligence milestone complete. All 4 phases (4-7) done.
