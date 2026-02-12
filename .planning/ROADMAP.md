@@ -89,10 +89,11 @@ Plans:
   1. A pair with a strong composite signal gets a measurably larger position than a pair with a weak signal (given identical exchange constraints)
   2. Total portfolio exposure across all open positions never exceeds the configured limit, regardless of individual signal strengths
   3. Dynamic sizer delegates to the existing PositionSizer for exchange constraint validation (qty_step, min_notional) -- no duplicate logic
-**Plans**: TBD
+**Plans:** 2 plans
 
 Plans:
-- [ ] 07-01: TBD
+- [ ] 07-01-PLAN.md -- DynamicSizer class, DynamicSizingSettings config, TDD tests (SIZE-01, SIZE-02, SIZE-03)
+- [ ] 07-02-PLAN.md -- Orchestrator integration, main.py wiring, backtest engine integration
 
 ## Progress
 
@@ -107,4 +108,4 @@ Phases execute in numeric order: 4 -> 5 -> 6 -> 7
 | 4. Historical Data Foundation | v1.1 | 3/3 | Complete | 2026-02-12 |
 | 5. Signal Analysis & Integration | v1.1 | 3/3 | Complete | 2026-02-12 |
 | 6. Backtest Engine | v1.1 | 4/4 | Complete | 2026-02-12 |
-| 7. Dynamic Position Sizing | v1.1 | 0/TBD | Not started | - |
+| 7. Dynamic Position Sizing | v1.1 | 0/2 | Not started | - |
