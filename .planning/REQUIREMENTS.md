@@ -61,7 +61,7 @@ Deferred to v1.2+. Tracked but not in current roadmap.
 | Feature | Reason |
 |---------|--------|
 | Machine learning prediction | Simple statistical signals capture 80% of value; ML adds massive complexity for marginal gain |
-| Cross-exchange arbitrage | Different APIs, fee structures, capital transfer delays — massive complexity |
+| Cross-exchange arbitrage | Different APIs, fee structures, capital transfer delays -- massive complexity |
 | Genetic/Bayesian optimization | Grid search sufficient for 3-5 parameter space |
 | Real-time strategy switching | Too complex/risky for v1.1; adjust parameters within single strategy instead |
 | Custom backtesting framework | Purpose-built replay loop sufficient for funding rate data (3 data points per 8h period) |
@@ -72,30 +72,30 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DATA-01 | — | Pending |
-| DATA-02 | — | Pending |
-| DATA-03 | — | Pending |
-| DATA-04 | — | Pending |
-| SGNL-01 | — | Pending |
-| SGNL-02 | — | Pending |
-| SGNL-03 | — | Pending |
-| SGNL-04 | — | Pending |
-| SGNL-05 | — | Pending |
-| SGNL-06 | — | Pending |
-| BKTS-01 | — | Pending |
-| BKTS-02 | — | Pending |
-| BKTS-03 | — | Pending |
-| BKTS-04 | — | Pending |
-| BKTS-05 | — | Pending |
-| SIZE-01 | — | Pending |
-| SIZE-02 | — | Pending |
-| SIZE-03 | — | Pending |
+| DATA-01 | Phase 4 | Pending |
+| DATA-02 | Phase 4 | Pending |
+| DATA-03 | Phase 4 | Pending |
+| DATA-04 | Phase 4 | Pending |
+| SGNL-01 | Phase 5 | Pending |
+| SGNL-02 | Phase 5 | Pending |
+| SGNL-03 | Phase 5 | Pending |
+| SGNL-04 | Phase 5 | Pending |
+| SGNL-05 | Phase 5 | Pending |
+| SGNL-06 | Phase 5 | Pending |
+| BKTS-01 | Phase 6 | Pending |
+| BKTS-02 | Phase 6 | Pending |
+| BKTS-03 | Phase 6 | Pending |
+| BKTS-04 | Phase 6 | Pending |
+| BKTS-05 | Phase 6 | Pending |
+| SIZE-01 | Phase 7 | Pending |
+| SIZE-02 | Phase 7 | Pending |
+| SIZE-03 | Phase 7 | Pending |
 
 **Coverage:**
 - v1.1 requirements: 18 total
-- Mapped to phases: 0
-- Unmapped: 18
+- Mapped to phases: 18
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-12*
-*Last updated: 2026-02-12 after initial definition*
+*Last updated: 2026-02-12 after roadmap creation*
