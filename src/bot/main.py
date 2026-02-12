@@ -34,6 +34,9 @@ import uvicorn
 from fastapi import FastAPI
 
 from bot.config import AppSettings
+from bot.data.database import HistoricalDatabase
+from bot.data.fetcher import HistoricalDataFetcher
+from bot.data.store import HistoricalDataStore
 from bot.exchange.bybit_client import BybitClient
 from bot.logging import get_logger, setup_logging
 from bot.market_data.funding_monitor import FundingMonitor
@@ -128,7 +131,20 @@ async def _build_components(settings: AppSettings) -> dict[str, Any]:
         exchange_client=exchange_client if settings.trading.mode == "live" else None,
     )
 
-    # 14. Create orchestrator
+    # 14. Create orchestrator (historical data components wired below)
+    # 14.5. Create historical data components (optional v1.1 feature)
+    historical_db = None
+    data_store = None
+    data_fetcher = None
+    if settings.historical.enabled:
+        historical_db = HistoricalDatabase(settings.historical.db_path)
+        data_store = HistoricalDataStore(historical_db)
+        data_fetcher = HistoricalDataFetcher(
+            exchange=exchange_client,
+            store=data_store,
+            settings=settings.historical,
+        )
+
     orchestrator = Orchestrator(
         settings=settings,
         exchange_client=exchange_client,
@@ -141,6 +157,9 @@ async def _build_components(settings: AppSettings) -> dict[str, Any]:
         risk_manager=risk_manager,
         ranker=ranker,
         emergency_controller=None,  # Set after orchestrator created (circular ref)
+        data_fetcher=data_fetcher,
+        data_store=data_store,
+        historical_settings=settings.historical if settings.historical.enabled else None,
     )
 
     # 15. Create emergency controller (needs orchestrator.stop as callback)
@@ -165,6 +184,9 @@ async def _build_components(settings: AppSettings) -> dict[str, Any]:
         "risk_manager": risk_manager,
         "orchestrator": orchestrator,
         "emergency_controller": emergency_controller,
+        "historical_db": historical_db,
+        "data_store": data_store,
+        "data_fetcher": data_fetcher,
     }
 
 
@@ -228,6 +250,9 @@ async def lifespan(app: FastAPI):
     app.state.emergency_controller = components["emergency_controller"]
     app.state.update_interval = settings.dashboard.update_interval
 
+    # Store data_store on app.state for dashboard access (may be None)
+    app.state.data_store = components.get("data_store")
+
     # Set up signal handlers now that the event loop is running
     _setup_signal_handlers(
         components["orchestrator"], components["emergency_controller"]
@@ -235,6 +260,10 @@ async def lifespan(app: FastAPI):
 
     # Connect to exchange
     await components["exchange_client"].connect()
+
+    # Connect historical database if enabled
+    if components.get("historical_db"):
+        await components["historical_db"].connect()
 
     # Start orchestrator as background task
     bot_task = asyncio.create_task(components["orchestrator"].start())
@@ -262,6 +291,10 @@ async def lifespan(app: FastAPI):
         await bot_task
     except asyncio.CancelledError:
         pass
+
+    # Close historical database if connected
+    if components.get("historical_db"):
+        await components["historical_db"].close()
 
     # Disconnect from exchange
     await components["exchange_client"].close()
@@ -329,8 +362,14 @@ async def run() -> None:
 
         try:
             await components["exchange_client"].connect()
+            # Connect historical database if enabled
+            if components.get("historical_db"):
+                await components["historical_db"].connect()
             await components["orchestrator"].start()
         finally:
+            # Close historical database if connected
+            if components.get("historical_db"):
+                await components["historical_db"].close()
             await components["exchange_client"].close()
             logger.info("funding_rate_arbitrage_stopped")
 
