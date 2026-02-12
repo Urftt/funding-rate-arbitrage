@@ -168,6 +168,48 @@ class BybitClient(ExchangeClient):
             return result_list[0]
         return {}
 
+    async def fetch_funding_rate_history(
+        self,
+        symbol: str,
+        limit: int = 200,
+        params: dict | None = None,
+    ) -> list[dict]:
+        """Fetch historical funding rate records from Bybit via ccxt.
+
+        Single-call wrapper -- no pagination. Callers handle iteration.
+        """
+        logger.debug(
+            "fetching_funding_rate_history",
+            symbol=symbol,
+            limit=limit,
+            params=params,
+        )
+        return await self._exchange.fetch_funding_rate_history(
+            symbol, limit=limit, params=params or {}
+        )
+
+    async def fetch_ohlcv(
+        self,
+        symbol: str,
+        timeframe: str = "1h",
+        since: int | None = None,
+        limit: int = 1000,
+        params: dict | None = None,
+    ) -> list[list]:
+        """Fetch OHLCV candle data from Bybit via ccxt.
+
+        Single-call wrapper -- no pagination. Callers handle iteration.
+        """
+        logger.debug(
+            "fetching_ohlcv",
+            symbol=symbol,
+            timeframe=timeframe,
+            limit=limit,
+        )
+        return await self._exchange.fetch_ohlcv(
+            symbol, timeframe=timeframe, since=since, limit=limit, params=params or {}
+        )
+
     def get_markets(self) -> dict:
         """Return cached markets dict loaded at connect() time."""
         return self._markets

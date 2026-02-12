@@ -88,6 +88,42 @@ class ExchangeClient(ABC):
         ...
 
     @abstractmethod
+    async def fetch_funding_rate_history(
+        self,
+        symbol: str,
+        limit: int = 200,
+        params: dict | None = None,
+    ) -> list[dict]:
+        """Fetch historical funding rate records.
+
+        Returns list of dicts with keys: symbol, fundingRate, timestamp, datetime, info.
+        Bybit max limit: 200 records per call.
+
+        Pagination is NOT handled here -- callers are responsible for
+        iterating with appropriate cursor/since parameters.
+        """
+        ...
+
+    @abstractmethod
+    async def fetch_ohlcv(
+        self,
+        symbol: str,
+        timeframe: str = "1h",
+        since: int | None = None,
+        limit: int = 1000,
+        params: dict | None = None,
+    ) -> list[list]:
+        """Fetch OHLCV candle data.
+
+        Returns list of [timestamp_ms, open, high, low, close, volume].
+        Bybit max limit: 1000 records per call.
+
+        Pagination is NOT handled here -- callers are responsible for
+        iterating with appropriate since parameters.
+        """
+        ...
+
+    @abstractmethod
     def get_markets(self) -> dict:
         """Return the cached markets dict from load_markets().
 
