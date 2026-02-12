@@ -5,6 +5,7 @@ arbitrage strategies using production-equivalent logic (Executor ABC swap).
 """
 
 from bot.backtest.data_wrapper import BacktestDataStoreWrapper
+from bot.backtest.engine import BacktestEngine
 from bot.backtest.executor import BacktestExecutor
 from bot.backtest.models import (
     BacktestConfig,
@@ -13,13 +14,18 @@ from bot.backtest.models import (
     EquityPoint,
     SweepResult,
 )
+from bot.backtest.runner import run_backtest, run_backtest_cli, run_comparison
 
 __all__ = [
     "BacktestConfig",
     "BacktestDataStoreWrapper",
+    "BacktestEngine",
     "BacktestExecutor",
     "BacktestMetrics",
     "BacktestResult",
     "EquityPoint",
     "SweepResult",
+    "run_backtest",
+    "run_backtest_cli",
+    "run_comparison",
 ]
