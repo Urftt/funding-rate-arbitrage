@@ -2,6 +2,7 @@
 
 Provides components for running historical backtests of funding rate
 arbitrage strategies using production-equivalent logic (Executor ABC swap).
+Includes parameter sweep for grid search optimization (BKTS-03).
 """
 
 from bot.backtest.data_wrapper import BacktestDataStoreWrapper
@@ -15,6 +16,7 @@ from bot.backtest.models import (
     SweepResult,
 )
 from bot.backtest.runner import run_backtest, run_backtest_cli, run_comparison
+from bot.backtest.sweep import ParameterSweep, format_sweep_summary
 
 __all__ = [
     "BacktestConfig",
@@ -24,7 +26,9 @@ __all__ = [
     "BacktestMetrics",
     "BacktestResult",
     "EquityPoint",
+    "ParameterSweep",
     "SweepResult",
+    "format_sweep_summary",
     "run_backtest",
     "run_backtest_cli",
     "run_comparison",
