@@ -69,6 +69,26 @@ class DashboardSettings(BaseSettings):
     update_interval: int = 5  # seconds between WebSocket pushes
 
 
+class HistoricalDataSettings(BaseSettings):
+    """Historical data collection configuration.
+
+    Controls data fetching behavior, storage location, and pair selection.
+    All fields configurable via HISTORICAL_ environment variable prefix.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="HISTORICAL_")
+
+    enabled: bool = True
+    db_path: str = "data/historical.db"
+    lookback_days: int = 365
+    ohlcv_interval: str = "1h"
+    top_pairs_count: int = 20
+    pair_reeval_interval_hours: int = 168  # weekly
+    max_retries: int = 5
+    retry_base_delay: float = 1.0
+    fetch_batch_delay: float = 0.1
+
+
 @dataclass
 class RuntimeConfig:
     """Mutable runtime config overlay. Non-None fields override BaseSettings values.
@@ -101,3 +121,4 @@ class AppSettings(BaseSettings):
     fees: FeeSettings = FeeSettings()
     risk: RiskSettings = RiskSettings()
     dashboard: DashboardSettings = DashboardSettings()
+    historical: HistoricalDataSettings = HistoricalDataSettings()
