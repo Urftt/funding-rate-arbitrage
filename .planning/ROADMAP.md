@@ -56,12 +56,12 @@ Plans:
   3. Bot computes a composite signal score combining rate level, trend, persistence, basis spread, and volume -- visible in logs
   4. Composite signal replaces simple threshold for entry/exit decisions in the orchestrator scan cycle
   5. Setting `strategy_mode: simple` in config reverts all decisions to v1.0 threshold behavior (existing tests pass unchanged)
-**Plans**: TBD
+**Plans:** 3 plans
 
 Plans:
-- [ ] 05-01: TBD
-- [ ] 05-02: TBD
-- [ ] 05-03: TBD
+- [ ] 05-01-PLAN.md -- Signal data models, config, trend detection, persistence scoring (SGNL-01, SGNL-02)
+- [ ] 05-02-PLAN.md -- Basis spread, volume trend filter, index price extraction (SGNL-04, SGNL-05)
+- [ ] 05-03-PLAN.md -- Composite signal aggregator, SignalEngine, orchestrator integration (SGNL-03, SGNL-06)
 
 ### Phase 6: Backtest Engine
 **Goal**: User can replay historical data through the full strategy pipeline to compare v1.0 vs v1.1 performance and optimize signal parameters
@@ -104,6 +104,6 @@ Phases execute in numeric order: 4 -> 5 -> 6 -> 7
 | 2. Multi-Pair Intelligence | v1.0 | 4/4 | Complete | 2026-02-11 |
 | 3. Dashboard & Analytics | v1.0 | 5/5 | Complete | 2026-02-11 |
 | 4. Historical Data Foundation | v1.1 | 3/3 | Complete | 2026-02-12 |
-| 5. Signal Analysis & Integration | v1.1 | 0/TBD | Not started | - |
+| 5. Signal Analysis & Integration | v1.1 | 0/3 | Planned | - |
 | 6. Backtest Engine | v1.1 | 0/TBD | Not started | - |
 | 7. Dynamic Position Sizing | v1.1 | 0/TBD | Not started | - |
