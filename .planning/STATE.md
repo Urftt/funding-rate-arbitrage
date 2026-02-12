@@ -11,11 +11,11 @@ See: .planning/PROJECT.md (updated 2026-02-12)
 
 Milestone: v1.1 Strategy Intelligence
 Phase: 4 of 7 (Historical Data Foundation)
-Plan: 1 of 3 in current phase
+Plan: 2 of 3 in current phase
 Status: Executing
-Last activity: 2026-02-12 -- Completed 04-01-PLAN.md
+Last activity: 2026-02-12 -- Completed 04-02-PLAN.md
 
-Progress: [██████████░░░░░░░░░░] 52% (v1.0 complete, v1.1 phase 4: 1/3 plans)
+Progress: [███████████░░░░░░░░░] 57% (v1.0 complete, v1.1 phase 4: 2/3 plans)
 
 ## Performance Metrics
 
@@ -36,7 +36,7 @@ Progress: [██████████░░░░░░░░░░] 52% (v1
 
 | Phase | Plans | Duration | Status |
 |-------|-------|----------|--------|
-| 4. Historical Data Foundation | 1/3 | 3min | In Progress |
+| 4. Historical Data Foundation | 2/3 | 7min | In Progress |
 
 *v1.1 metrics will be tracked as plans complete*
 
@@ -54,6 +54,10 @@ Recent decisions affecting current work:
 - Decimal values stored as TEXT in SQLite to preserve precision
 - WAL journal mode + NORMAL synchronous for database performance
 - Exchange client fetch methods are thin wrappers -- pagination handled by higher-level fetchers
+- HistoricalDataStore wraps database with typed methods; all Decimal stored as TEXT, restored on read
+- Backward pagination uses endTime parameter (never startTime alone) per Bybit API requirement
+- Bybit kline response reversed before processing (newest-first pitfall)
+- Incremental updates: DEBUG per-pair, INFO summary (signal-to-noise balance)
 
 ### Pending Todos
 
@@ -68,6 +72,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: Completed 04-01-PLAN.md
+Stopped at: Completed 04-02-PLAN.md
 Resume file: None
-Next step: `/gsd:execute-phase 04` (plan 02)
+Next step: `/gsd:execute-phase 04` (plan 03)
