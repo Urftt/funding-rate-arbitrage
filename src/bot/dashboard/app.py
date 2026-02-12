@@ -72,6 +72,10 @@ def create_dashboard_app(lifespan: Any = None) -> FastAPI:
     # Store WebSocket hub on app state for access from route handlers
     app.state.hub = hub
 
+    # Backtest task storage for background execution (BKTS-04)
+    app.state.backtest_tasks: dict = {}
+    app.state.historical_db_path = "data/historical.db"
+
     # Register routers
     app.include_router(pages.router)
     app.include_router(api.router, prefix="/api")

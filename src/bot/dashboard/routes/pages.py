@@ -95,3 +95,20 @@ async def dashboard_index(request: Request) -> HTMLResponse:
     }
 
     return templates.TemplateResponse("index.html", context)
+
+
+@router.get("/backtest", response_class=HTMLResponse)
+async def backtest_page(request: Request) -> HTMLResponse:
+    """Backtest page with configuration form, equity curve, and heatmap (BKTS-04)."""
+    templates: Jinja2Templates = request.app.state.templates
+
+    # Get list of tracked pairs from data store for the symbol dropdown
+    data_store = getattr(request.app.state, "data_store", None)
+    tracked_pairs: list[dict] = []
+    if data_store is not None:
+        tracked_pairs = await data_store.get_tracked_pairs(active_only=True)
+
+    return templates.TemplateResponse("backtest.html", {
+        "request": request,
+        "tracked_pairs": tracked_pairs,
+    })

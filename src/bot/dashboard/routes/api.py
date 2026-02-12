@@ -1,7 +1,10 @@
-"""JSON API endpoints for dashboard data (DASH-01 through DASH-07)."""
+"""JSON API endpoints for dashboard data (DASH-01 through DASH-07) and backtest (BKTS-04)."""
 
 from __future__ import annotations
 
+import asyncio
+import uuid
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -10,7 +13,17 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from bot.analytics import metrics as analytics_metrics
+from bot.backtest.models import BacktestConfig
+from bot.backtest.runner import run_backtest, run_comparison
 from bot.pnl.tracker import PositionPnL
+
+# Optional: ParameterSweep may not be available if 06-03 hasn't been executed yet
+try:
+    from bot.backtest.sweep import ParameterSweep
+
+    _SWEEP_AVAILABLE = True
+except ImportError:
+    _SWEEP_AVAILABLE = False
 
 log = structlog.get_logger(__name__)
 
@@ -155,3 +168,351 @@ async def get_data_status(request: Request) -> JSONResponse:
         result["fetch_progress"] = progress
 
     return JSONResponse(content=result)
+
+
+# ---------------------------------------------------------------------------
+# Backtest API endpoints (BKTS-04)
+# ---------------------------------------------------------------------------
+
+
+def _parse_dates(start_date: str, end_date: str) -> tuple[int, int]:
+    """Convert YYYY-MM-DD date strings to millisecond timestamps.
+
+    Args:
+        start_date: Start date string in YYYY-MM-DD format.
+        end_date: End date string in YYYY-MM-DD format.
+
+    Returns:
+        Tuple of (start_ms, end_ms).
+
+    Raises:
+        ValueError: If date format is invalid or range is empty.
+    """
+    start_dt = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    start_ms = int(start_dt.timestamp() * 1000)
+    end_ms = int(end_dt.timestamp() * 1000)
+    if end_ms <= start_ms:
+        raise ValueError(f"End date ({end_date}) must be after start date ({start_date})")
+    return start_ms, end_ms
+
+
+async def _run_backtest_task(
+    task_id: str, app_state: Any, config: BacktestConfig, db_path: str
+) -> None:
+    """Run a single backtest as a background task and store the result.
+
+    Args:
+        task_id: Unique identifier for this task.
+        app_state: FastAPI app.state object for storing results.
+        config: Backtest configuration.
+        db_path: Path to the historical database.
+    """
+    try:
+        result = await run_backtest(config, db_path)
+        app_state.backtest_tasks[task_id]["result"] = result.to_dict()
+        app_state.backtest_tasks[task_id]["status"] = "complete"
+    except Exception as e:
+        log.error("backtest_task_error", task_id=task_id, error=str(e))
+        app_state.backtest_tasks[task_id]["result"] = {"error": str(e)}
+        app_state.backtest_tasks[task_id]["status"] = "error"
+
+
+async def _run_comparison_task(
+    task_id: str,
+    app_state: Any,
+    config_simple: BacktestConfig,
+    config_composite: BacktestConfig,
+    db_path: str,
+) -> None:
+    """Run a v1.0 vs v1.1 comparison as a background task.
+
+    Args:
+        task_id: Unique identifier for this task.
+        app_state: FastAPI app.state object for storing results.
+        config_simple: Config for simple (v1.0) strategy.
+        config_composite: Config for composite (v1.1) strategy.
+        db_path: Path to the historical database.
+    """
+    try:
+        simple_result, composite_result = await run_comparison(
+            config_simple, config_composite, db_path
+        )
+        app_state.backtest_tasks[task_id]["result"] = {
+            "simple": simple_result.to_dict(),
+            "composite": composite_result.to_dict(),
+        }
+        app_state.backtest_tasks[task_id]["status"] = "complete"
+    except Exception as e:
+        log.error("comparison_task_error", task_id=task_id, error=str(e))
+        app_state.backtest_tasks[task_id]["result"] = {"error": str(e)}
+        app_state.backtest_tasks[task_id]["status"] = "error"
+
+
+async def _run_sweep_task(
+    task_id: str,
+    app_state: Any,
+    config: BacktestConfig,
+    param_grid: dict,
+    db_path: str,
+) -> None:
+    """Run a parameter sweep as a background task.
+
+    Args:
+        task_id: Unique identifier for this task.
+        app_state: FastAPI app.state object for storing results.
+        config: Base backtest configuration.
+        param_grid: Parameter grid for the sweep.
+        db_path: Path to the historical database.
+    """
+    try:
+        sweep = ParameterSweep(db_path=db_path)
+        result = await sweep.run(config, param_grid)
+        app_state.backtest_tasks[task_id]["result"] = result.to_dict()
+        app_state.backtest_tasks[task_id]["status"] = "complete"
+    except Exception as e:
+        log.error("sweep_task_error", task_id=task_id, error=str(e))
+        app_state.backtest_tasks[task_id]["result"] = {"error": str(e)}
+        app_state.backtest_tasks[task_id]["status"] = "error"
+
+
+def _build_config_from_body(body: dict, start_ms: int, end_ms: int) -> BacktestConfig:
+    """Build a BacktestConfig from the request body with date timestamps.
+
+    Extracts known fields from the body dict and constructs a BacktestConfig.
+    Unknown fields are silently ignored.
+
+    Args:
+        body: Parsed JSON request body.
+        start_ms: Start timestamp in milliseconds.
+        end_ms: End timestamp in milliseconds.
+
+    Returns:
+        BacktestConfig with values from body and computed timestamps.
+    """
+    kwargs: dict[str, Any] = {
+        "symbol": body["symbol"],
+        "start_ms": start_ms,
+        "end_ms": end_ms,
+    }
+
+    # Optional fields with type conversion
+    if "strategy_mode" in body:
+        kwargs["strategy_mode"] = body["strategy_mode"]
+    if "initial_capital" in body:
+        kwargs["initial_capital"] = Decimal(str(body["initial_capital"]))
+
+    # Simple strategy params
+    for field in ("min_funding_rate", "exit_funding_rate"):
+        if field in body and body[field] is not None:
+            kwargs[field] = Decimal(str(body[field]))
+
+    # Composite strategy params
+    for field in (
+        "entry_threshold",
+        "exit_threshold",
+        "weight_rate_level",
+        "weight_trend",
+        "weight_persistence",
+        "weight_basis",
+    ):
+        if field in body and body[field] is not None:
+            kwargs[field] = Decimal(str(body[field]))
+
+    return BacktestConfig(**kwargs)
+
+
+@router.post("/backtest/run")
+async def run_backtest_endpoint(request: Request) -> JSONResponse:
+    """Start a single backtest as a background task (BKTS-04).
+
+    Expects JSON body with: symbol, start_date, end_date, strategy_mode,
+    and optional parameter overrides.
+
+    Returns:
+        JSON with task_id and status="running".
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(
+            content={"error": "Invalid JSON body"}, status_code=400
+        )
+
+    # Validate required fields
+    for field in ("symbol", "start_date", "end_date"):
+        if field not in body:
+            return JSONResponse(
+                content={"error": f"Missing required field: {field}"}, status_code=400
+            )
+
+    try:
+        start_ms, end_ms = _parse_dates(body["start_date"], body["end_date"])
+    except ValueError as e:
+        return JSONResponse(content={"error": str(e)}, status_code=400)
+
+    config = _build_config_from_body(body, start_ms, end_ms)
+    db_path = getattr(request.app.state, "historical_db_path", "data/historical.db")
+
+    task_id = str(uuid.uuid4())[:8]
+    request.app.state.backtest_tasks[task_id] = {
+        "task": None,
+        "type": "backtest",
+        "status": "running",
+        "result": None,
+    }
+    task = asyncio.create_task(
+        _run_backtest_task(task_id, request.app.state, config, db_path)
+    )
+    request.app.state.backtest_tasks[task_id]["task"] = task
+
+    return JSONResponse(content={"task_id": task_id, "status": "running"})
+
+
+@router.post("/backtest/sweep")
+async def run_sweep_endpoint(request: Request) -> JSONResponse:
+    """Start a parameter sweep as a background task (BKTS-04).
+
+    Expects JSON body with: symbol, start_date, end_date, strategy_mode,
+    and optional param_grid dict.
+
+    Returns:
+        JSON with task_id and status="running", or error if sweep not available.
+    """
+    if not _SWEEP_AVAILABLE:
+        return JSONResponse(
+            content={"error": "Parameter sweep module not available. Run plan 06-03 first."},
+            status_code=501,
+        )
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(
+            content={"error": "Invalid JSON body"}, status_code=400
+        )
+
+    for field in ("symbol", "start_date", "end_date"):
+        if field not in body:
+            return JSONResponse(
+                content={"error": f"Missing required field: {field}"}, status_code=400
+            )
+
+    try:
+        start_ms, end_ms = _parse_dates(body["start_date"], body["end_date"])
+    except ValueError as e:
+        return JSONResponse(content={"error": str(e)}, status_code=400)
+
+    config = _build_config_from_body(body, start_ms, end_ms)
+    db_path = getattr(request.app.state, "historical_db_path", "data/historical.db")
+
+    # Use provided param_grid or generate default
+    param_grid = body.get("param_grid")
+    if param_grid is None:
+        strategy_mode = body.get("strategy_mode", "simple")
+        param_grid = ParameterSweep.generate_default_grid(strategy_mode)
+
+    task_id = str(uuid.uuid4())[:8]
+    request.app.state.backtest_tasks[task_id] = {
+        "task": None,
+        "type": "sweep",
+        "status": "running",
+        "result": None,
+    }
+    task = asyncio.create_task(
+        _run_sweep_task(task_id, request.app.state, config, param_grid, db_path)
+    )
+    request.app.state.backtest_tasks[task_id]["task"] = task
+
+    return JSONResponse(content={"task_id": task_id, "status": "running"})
+
+
+@router.post("/backtest/compare")
+async def run_compare_endpoint(request: Request) -> JSONResponse:
+    """Start a v1.0 vs v1.1 comparison as a background task (BKTS-04).
+
+    Expects JSON body with: symbol, start_date, end_date.
+
+    Returns:
+        JSON with task_id and status="running".
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(
+            content={"error": "Invalid JSON body"}, status_code=400
+        )
+
+    for field in ("symbol", "start_date", "end_date"):
+        if field not in body:
+            return JSONResponse(
+                content={"error": f"Missing required field: {field}"}, status_code=400
+            )
+
+    try:
+        start_ms, end_ms = _parse_dates(body["start_date"], body["end_date"])
+    except ValueError as e:
+        return JSONResponse(content={"error": str(e)}, status_code=400)
+
+    config_simple = _build_config_from_body(
+        {**body, "strategy_mode": "simple"}, start_ms, end_ms
+    )
+    config_composite = _build_config_from_body(
+        {**body, "strategy_mode": "composite"}, start_ms, end_ms
+    )
+    db_path = getattr(request.app.state, "historical_db_path", "data/historical.db")
+
+    task_id = str(uuid.uuid4())[:8]
+    request.app.state.backtest_tasks[task_id] = {
+        "task": None,
+        "type": "compare",
+        "status": "running",
+        "result": None,
+    }
+    task = asyncio.create_task(
+        _run_comparison_task(
+            task_id, request.app.state, config_simple, config_composite, db_path
+        )
+    )
+    request.app.state.backtest_tasks[task_id]["task"] = task
+
+    return JSONResponse(content={"task_id": task_id, "status": "running"})
+
+
+@router.get("/backtest/status/{task_id}")
+async def get_backtest_status(request: Request, task_id: str) -> JSONResponse:
+    """Check the status of a running backtest/sweep/compare task.
+
+    Returns the task status and result when complete.
+
+    Args:
+        request: FastAPI request.
+        task_id: Unique task identifier returned by the run/sweep/compare endpoint.
+
+    Returns:
+        JSON with status and optional result.
+    """
+    tasks = request.app.state.backtest_tasks
+    if task_id not in tasks:
+        return JSONResponse(
+            content={"error": "Task not found"}, status_code=404
+        )
+
+    entry = tasks[task_id]
+    status = entry["status"]
+
+    if status == "running":
+        return JSONResponse(content={"task_id": task_id, "status": "running"})
+
+    # Complete or error -- return result and clean up task reference
+    result = entry["result"]
+    entry["task"] = None  # Release the asyncio.Task reference
+
+    return JSONResponse(
+        content={
+            "task_id": task_id,
+            "status": status,
+            "type": entry["type"],
+            "result": result,
+        }
+    )
