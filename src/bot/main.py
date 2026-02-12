@@ -253,10 +253,16 @@ async def lifespan(app: FastAPI):
     # Store data_store on app.state for dashboard access (may be None)
     app.state.data_store = components.get("data_store")
 
-    # Set up signal handlers now that the event loop is running
-    _setup_signal_handlers(
-        components["orchestrator"], components["emergency_controller"]
-    )
+    # Set up SIGUSR1 for emergency stop only.
+    # SIGINT/SIGTERM are handled by uvicorn → lifespan cleanup stops orchestrator.
+    loop = asyncio.get_running_loop()
+    logger_sig = get_logger("bot.main")
+
+    def _emergency_handler() -> None:
+        logger_sig.critical("emergency_stop_signal_received")
+        asyncio.create_task(components["emergency_controller"].trigger("user_signal_SIGUSR1"))
+
+    loop.add_signal_handler(signal.SIGUSR1, _emergency_handler)
 
     # Connect to exchange
     await components["exchange_client"].connect()
@@ -376,7 +382,10 @@ async def run() -> None:
 
 def main() -> None:
     """Synchronous entry point."""
-    asyncio.run(run())
+    try:
+        asyncio.run(run())
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == "__main__":

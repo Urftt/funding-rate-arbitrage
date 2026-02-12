@@ -182,11 +182,19 @@ class Orchestrator:
         if self._data_fetcher is None:
             return
 
+        # Wait for funding monitor to complete its first poll (up to 30s)
         all_rates = self._funding_monitor.get_all_funding_rates()
+        if not all_rates:
+            logger.info("waiting_for_funding_rates", note="Waiting for first funding poll before historical fetch")
+            for _ in range(60):
+                await asyncio.sleep(0.5)
+                all_rates = self._funding_monitor.get_all_funding_rates()
+                if all_rates:
+                    break
         if not all_rates:
             logger.warning(
                 "no_funding_rates_for_historical_data",
-                note="Funding monitor has not polled yet, skipping initial historical fetch",
+                note="Funding monitor did not return rates after 30s, skipping initial historical fetch",
             )
             return
 
