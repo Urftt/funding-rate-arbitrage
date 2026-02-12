@@ -37,7 +37,11 @@ The bot correctly identifies funding rate opportunities and executes delta-neutr
 
 ### Active
 
-(No active requirements — planning next milestone)
+<!-- v1.1 Strategy Intelligence — see REQUIREMENTS.md for full scoped list -->
+
+- [ ] Smarter entry/exit signals (funding rate trends, historical patterns, market conditions)
+- [ ] Backtesting engine (historical replay from Bybit API, parameter optimization)
+- [ ] Dynamic position sizing (conviction-based scaling with risk constraints)
 
 ### Out of Scope
 
@@ -48,6 +52,17 @@ The bot correctly identifies funding rate opportunities and executes delta-neutr
 - Multiple strategy types — funding rate arb only
 - High-frequency trading — 8hr funding cycles tolerate minute-scale latency
 - Leveraged spot positions — keep spot unleveraged, only perp side uses leverage
+
+## Current Milestone: v1.1 Strategy Intelligence
+
+**Goal:** Evolve the bot from simple threshold-based trading to an intelligent strategy engine that considers funding rate trends, historical patterns, and market conditions — validated through backtesting.
+
+**Target features:**
+- Smarter entry/exit: Funding rate trend analysis, historical pattern recognition, market condition awareness (volatility, volume, spread)
+- Backtesting engine: Fetch historical data from Bybit API, replay simulations, optimize parameters (entry/exit thresholds, hold times)
+- Dynamic position sizing: Conviction-based scaling (higher rate = larger position) constrained by risk limits (portfolio exposure, pair correlation, max drawdown)
+
+**Done when:** Backtest demonstrates improved returns vs v1's simple threshold strategy.
 
 ## Context
 
@@ -83,4 +98,4 @@ The bot correctly identifies funding rate opportunities and executes delta-neutr
 | Signal-based emergency stop | SIGUSR1 triggers immediate position close | ✓ Good — works from CLI and dashboard |
 
 ---
-*Last updated: 2026-02-11 after v1.0 milestone*
+*Last updated: 2026-02-12 after v1.1 milestone start*

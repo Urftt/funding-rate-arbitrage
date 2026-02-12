@@ -2,35 +2,19 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-02-11)
+See: .planning/PROJECT.md (updated 2026-02-12)
 
 **Core value:** The bot correctly identifies funding rate opportunities and executes delta-neutral positions that collect funding payments without taking directional risk.
-**Current focus:** v1.0 MVP shipped — planning next milestone
+**Current focus:** v1.1 Strategy Intelligence — smarter entry/exit, backtesting, dynamic sizing
 
 ## Current Position
 
-Milestone: v1.0 MVP — SHIPPED 2026-02-11
-Phase: All 3 phases complete (14/14 plans)
-Status: Milestone Complete
+Milestone: v1.1 Strategy Intelligence
+Phase: Not started (defining requirements)
+Status: Defining requirements
+Last activity: 2026-02-12 — Milestone v1.1 started
 
-Progress: [██████████] 100%
-
-## Performance Metrics
-
-**Velocity:**
-- Total plans completed: 14
-- Average duration: 4 min
-- Total execution time: 0.88 hours
-
-**By Phase:**
-
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| 01-core-trading-engine | 5/5 | 23 min | 5 min |
-| 02-multi-pair-intelligence | 4/4 | 16 min | 4 min |
-| 03-dashboard-analytics | 5/5 | 14 min | 3 min |
-
-*Updated after each plan completion*
+Progress: [░░░░░░░░░░] 0%
 
 ## Accumulated Context
 
@@ -51,6 +35,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-11 - v1.0 milestone completion
-Stopped at: Milestone v1.0 shipped
+Last session: 2026-02-12 - v1.1 milestone start
+Stopped at: Defining requirements for v1.1
 Resume file: None
