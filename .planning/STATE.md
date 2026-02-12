@@ -5,17 +5,17 @@
 See: .planning/PROJECT.md (updated 2026-02-12)
 
 **Core value:** The bot correctly identifies funding rate opportunities and executes delta-neutral positions that collect funding payments without taking directional risk.
-**Current focus:** v1.1 Strategy Intelligence -- Phase 6 complete, ready for Phase 7
+**Current focus:** v1.1 Strategy Intelligence -- Phase 7 in progress
 
 ## Current Position
 
 Milestone: v1.1 Strategy Intelligence
-Phase: 6 of 7 (Backtest Engine) -- COMPLETE
-Plan: 4 of 4 in current phase
-Status: Phase Complete -- verified 5/5 must-haves
-Last activity: 2026-02-12 -- Phase 6 execution complete, verification passed
+Phase: 7 of 7 (Dynamic Position Sizing) -- IN PROGRESS
+Plan: 1 of 2 in current phase -- COMPLETE
+Status: Plan 07-01 complete -- DynamicSizer core with TDD
+Last activity: 2026-02-12 -- Plan 07-01 execution complete
 
-Progress: [████████████████████] 96% (v1.0 complete, v1.1 phase 6: 4/4 plans)
+Progress: [████████████████████] 98% (v1.0 complete, v1.1 phase 7: 1/2 plans)
 
 ## Performance Metrics
 
@@ -39,6 +39,7 @@ Progress: [████████████████████] 96% (v1
 | 4. Historical Data Foundation | 3/3 | 19min | Complete |
 | 5. Signal Analysis Integration | 3/3 | 11min | Complete |
 | 6. Backtest Engine | 4/4 | 18min | Complete |
+| 7. Dynamic Position Sizing | 1/2 | 3min | In Progress |
 
 ## Accumulated Context
 
@@ -81,6 +82,9 @@ Recent decisions affecting current work:
 - Background backtest tasks use asyncio.create_task with polling instead of WebSocket push for simplicity
 - Equity curve uses Chart.js CDN matching existing dashboard HTMX/CDN pattern
 - Heatmap uses HTML table with inline rgba backgrounds instead of Chart.js matrix plugin for reliability
+- DynamicSizingSettings does NOT duplicate max_position_size_usd -- reads from TradingSettings via constructor injection
+- Linear interpolation for score-to-fraction mapping (simplest, configurable, backtestable)
+- DynamicSizer delegates to PositionSizer for exchange constraints (SIZE-03 mandate)
 
 ### Pending Todos
 
@@ -95,6 +99,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: Phase 6 execution complete -- all 4 plans executed, verification passed
+Stopped at: Completed 07-01-PLAN.md -- DynamicSizer core with TDD
 Resume file: None
-Next step: Plan Phase 07 (Dynamic Position Sizing)
+Next step: Execute 07-02-PLAN.md (DynamicSizer integration)
