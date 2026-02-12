@@ -25,6 +25,7 @@ class TradingSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="TRADING_")
 
     mode: Literal["paper", "live"] = "paper"
+    strategy_mode: Literal["simple", "composite"] = "simple"  # Default preserves v1.0
     max_position_size_usd: Decimal = Decimal("1000")
     min_funding_rate: Decimal = Decimal("0.0003")  # 0.03%/8h minimum viable per research
     delta_drift_tolerance: Decimal = Decimal("0.02")  # 2% max
@@ -89,6 +90,45 @@ class HistoricalDataSettings(BaseSettings):
     fetch_batch_delay: float = 0.1
 
 
+class SignalSettings(BaseSettings):
+    """Signal analysis configuration for composite strategy mode.
+
+    Controls EMA trend detection, persistence scoring, basis spread weighting,
+    volume trend filtering, composite weight allocation, and entry/exit thresholds.
+    All fields configurable via SIGNAL_ environment variable prefix.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="SIGNAL_")
+
+    # EMA trend detection
+    trend_ema_span: int = 6  # Number of funding periods for EMA
+    trend_stable_threshold: Decimal = Decimal("0.00005")  # Min EMA diff for rising/falling
+
+    # Persistence scoring
+    persistence_threshold: Decimal = Decimal("0.0003")  # Rate threshold for "elevated"
+    persistence_max_periods: int = 30  # Normalize count against this
+
+    # Basis spread
+    basis_weight_cap: Decimal = Decimal("0.01")  # Cap basis contribution at 1%
+
+    # Volume trend
+    volume_lookback_days: int = 7  # Days for recent volume average
+    volume_decline_ratio: Decimal = Decimal("0.7")  # Flag if recent < 70% of prior
+
+    # Composite weights (must sum to ~1.0)
+    weight_rate_level: Decimal = Decimal("0.35")  # Rate level weight
+    weight_trend: Decimal = Decimal("0.25")  # Trend weight
+    weight_persistence: Decimal = Decimal("0.25")  # Persistence weight
+    weight_basis: Decimal = Decimal("0.15")  # Basis weight
+
+    # Entry/exit thresholds for composite score
+    entry_threshold: Decimal = Decimal("0.5")  # Min composite score to enter
+    exit_threshold: Decimal = Decimal("0.3")  # Close when score drops below
+
+    # Rate normalization
+    rate_normalization_cap: Decimal = Decimal("0.003")  # Cap for normalizing rate to 0-1
+
+
 @dataclass
 class RuntimeConfig:
     """Mutable runtime config overlay. Non-None fields override BaseSettings values.
@@ -122,3 +162,4 @@ class AppSettings(BaseSettings):
     risk: RiskSettings = RiskSettings()
     dashboard: DashboardSettings = DashboardSettings()
     historical: HistoricalDataSettings = HistoricalDataSettings()
+    signal: SignalSettings = SignalSettings()
