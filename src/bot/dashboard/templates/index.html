@@ -3,11 +3,12 @@
 {% block title %}Dashboard | Funding Rate Arbitrage{% endblock %}
 
 {% block content %}
-<!-- Top row: Status + Balance + Analytics summary -->
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+<!-- Top row: Status + Balance + Analytics + Data Status -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
   <div>{% include "partials/bot_status.html" %}</div>
   <div>{% include "partials/balance.html" %}</div>
   <div>{% include "partials/analytics.html" %}</div>
+  <div>{% include "partials/data_status.html" %}</div>
 </div>
 
 <!-- Positions table -->

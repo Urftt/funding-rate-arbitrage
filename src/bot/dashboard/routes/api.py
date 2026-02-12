@@ -134,3 +134,24 @@ async def get_analytics(request: Request) -> JSONResponse:
         "max_drawdown": str(dd) if dd is not None else None,
         "win_rate": str(wr) if wr is not None else None,
     })
+
+
+@router.get("/data-status")
+async def get_data_status(request: Request) -> JSONResponse:
+    """Data status for historical data widget."""
+    data_store = getattr(request.app.state, "data_store", None)
+    if data_store is None:
+        return JSONResponse(content={"enabled": False})
+
+    status = await data_store.get_data_status()
+    orchestrator = request.app.state.orchestrator
+    progress = orchestrator.data_fetch_progress
+
+    result = {
+        "enabled": True,
+        **_decimal_to_str(status),
+    }
+    if progress:
+        result["fetch_progress"] = progress
+
+    return JSONResponse(content=result)

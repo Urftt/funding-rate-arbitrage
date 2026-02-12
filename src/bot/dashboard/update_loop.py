@@ -120,6 +120,21 @@ async def dashboard_update_loop(app: FastAPI) -> None:
                 f'<div id="trade-history-panel" hx-swap-oob="true">{html}</div>'
             )
 
+            # Data status partial (v1.1 historical data widget)
+            data_store = getattr(app.state, "data_store", None)
+            if data_store is not None:
+                data_status = await data_store.get_data_status()
+                fetch_progress = orchestrator.data_fetch_progress
+            else:
+                data_status = None
+                fetch_progress = None
+
+            tpl = env.get_template("partials/data_status.html")
+            html = tpl.render(data_status=data_status, fetch_progress=fetch_progress)
+            fragments.append(
+                f'<div id="data-status-panel" hx-swap-oob="true">{html}</div>'
+            )
+
             # Config form partial (no message/error during periodic updates)
             tpl = env.get_template("partials/config_form.html")
             html = tpl.render(settings=settings, message="", error="")

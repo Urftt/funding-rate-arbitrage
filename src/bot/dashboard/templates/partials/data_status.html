@@ -1,0 +1,72 @@
+<div id="data-status-panel">
+  <div class="bg-dash-card rounded-lg p-4 border border-dash-border">
+    <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">Data Status</h2>
+
+    {% if data_status is none and fetch_progress is none %}
+      {# Historical data feature is disabled #}
+      <div class="text-sm text-gray-500 italic">Historical data: disabled</div>
+
+    {% elif fetch_progress and fetch_progress.status == "fetching" %}
+      {# Loading state: fetch in progress #}
+      <div class="space-y-2">
+        <div class="text-sm text-gray-300">
+          <span class="text-white font-medium">{{ fetch_progress.current_index }}/{{ fetch_progress.total }}</span> pairs
+        </div>
+        <div class="text-xs text-gray-400">
+          Fetching <span class="text-blue-400">{{ fetch_progress.current_symbol }}</span>
+        </div>
+        {# Progress bar #}
+        {% set pct = (fetch_progress.current_index / fetch_progress.total * 100) | int if fetch_progress.total > 0 else 0 %}
+        <div class="w-full bg-gray-700 rounded-full h-1.5">
+          <div class="bg-blue-500 h-1.5 rounded-full transition-all duration-300" style="width: {{ pct }}%"></div>
+        </div>
+        <div class="text-xs text-gray-500">{{ pct }}% complete</div>
+      </div>
+
+    {% elif fetch_progress and fetch_progress.status == "starting" %}
+      {# Starting state #}
+      <div class="space-y-2">
+        <div class="text-sm text-gray-300">
+          Preparing to fetch <span class="text-white font-medium">{{ fetch_progress.total }}</span> pairs...
+        </div>
+        <div class="w-full bg-gray-700 rounded-full h-1.5">
+          <div class="bg-blue-500 h-1.5 rounded-full animate-pulse" style="width: 5%"></div>
+        </div>
+      </div>
+
+    {% elif data_status %}
+      {# Normal state: data loaded #}
+      <div class="space-y-2">
+        <div class="flex justify-between items-center">
+          <span class="text-sm text-gray-400">Pairs Tracked</span>
+          <span class="text-sm font-medium text-white">{{ data_status.total_pairs }}</span>
+        </div>
+
+        <div class="flex justify-between items-center">
+          <span class="text-sm text-gray-400">Total Records</span>
+          <span class="text-sm font-medium text-gray-200">{{ "{:,}".format(data_status.total_funding_records + data_status.total_ohlcv_records) }}</span>
+        </div>
+
+        {% if data_status.earliest_date_ms and data_status.latest_date_ms %}
+        <div class="flex justify-between items-center">
+          <span class="text-sm text-gray-400">Date Range</span>
+          <span class="text-xs font-medium text-gray-200">
+            {{ data_status.earliest_date_ms | timestamp_to_date }} - {{ data_status.latest_date_ms | timestamp_to_date }}
+          </span>
+        </div>
+        {% endif %}
+
+        {% if data_status.last_sync_ms %}
+        <div class="flex justify-between items-center">
+          <span class="text-sm text-gray-400">Last Sync</span>
+          <span class="text-sm font-medium text-gray-200">{{ data_status.last_sync_ms | time_ago }}</span>
+        </div>
+        {% endif %}
+      </div>
+
+    {% else %}
+      {# No data yet #}
+      <div class="text-sm text-gray-500 italic">No data yet</div>
+    {% endif %}
+  </div>
+</div>

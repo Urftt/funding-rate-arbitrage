@@ -72,6 +72,15 @@ async def dashboard_index(request: Request) -> HTMLResponse:
     # Current settings for config form
     settings = orchestrator._settings
 
+    # Data status for historical data widget (may be None if feature disabled)
+    data_store = getattr(request.app.state, "data_store", None)
+    if data_store is not None:
+        data_status = await data_store.get_data_status()
+        fetch_progress = orchestrator.data_fetch_progress
+    else:
+        data_status = None
+        fetch_progress = None
+
     context = {
         "request": request,
         "status": status,
@@ -81,6 +90,8 @@ async def dashboard_index(request: Request) -> HTMLResponse:
         "portfolio": portfolio,
         "analytics": analytics_data,
         "settings": settings,
+        "data_status": data_status,
+        "fetch_progress": fetch_progress,
     }
 
     return templates.TemplateResponse("index.html", context)
