@@ -11,11 +11,11 @@ See: .planning/PROJECT.md (updated 2026-02-12)
 
 Milestone: v1.1 Strategy Intelligence
 Phase: 6 of 7 (Backtest Engine)
-Plan: 2 of 4 in current phase -- COMPLETE
+Plan: 3 of 4 in current phase -- COMPLETE
 Status: Executing
-Last activity: 2026-02-12 -- Completed 06-02-PLAN.md (core backtest engine + runner)
+Last activity: 2026-02-12 -- Completed 06-03-PLAN.md (parameter sweep + CLI)
 
-Progress: [██████████████████░░] 88% (v1.0 complete, v1.1 phase 6: 2/4 plans)
+Progress: [███████████████████░] 92% (v1.0 complete, v1.1 phase 6: 3/4 plans)
 
 ## Performance Metrics
 
@@ -38,7 +38,7 @@ Progress: [██████████████████░░] 88% (v1
 |-------|-------|----------|--------|
 | 4. Historical Data Foundation | 3/3 | 19min | Complete |
 | 5. Signal Analysis Integration | 3/3 | 11min | Complete |
-| 6. Backtest Engine | 2/4 | 8min | In Progress |
+| 6. Backtest Engine | 3/4 | 13min | In Progress |
 
 ## Accumulated Context
 
@@ -74,6 +74,9 @@ Recent decisions affecting current work:
 - Simple strategy uses inline threshold comparison (not OpportunityRanker) since backtesting single-symbol
 - Generous InstrumentInfo for backtest mode (no exchange constraint validation needed)
 - Composite mode falls back to simple strategy on error for resilience
+- CLI uses --backtest flag detection in main() before any bot component init -- zero overhead when not backtesting
+- Memory management discards equity curves from non-best sweep results to prevent growth
+- format_sweep_summary() uses plain print() -- no external table formatting dependency
 
 ### Pending Todos
 
@@ -88,6 +91,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: Completed 06-02-PLAN.md -- core backtest engine + runner
+Stopped at: Completed 06-03-PLAN.md -- parameter sweep + CLI
 Resume file: None
-Next step: Execute 06-03-PLAN.md (parameter sweep)
+Next step: Execute 06-04-PLAN.md (backtest dashboard)
