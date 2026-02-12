@@ -73,12 +73,13 @@ Plans:
   3. User can sweep over entry/exit thresholds and signal weights to find optimal parameters
   4. Dashboard shows backtest results with equity curve and parameter comparison heatmap
   5. User can run both v1.0 (simple threshold) and v1.1 (composite signal) strategies side-by-side for direct comparison
-**Plans**: TBD
+**Plans:** 4 plans
 
 Plans:
-- [ ] 06-01: TBD
-- [ ] 06-02: TBD
-- [ ] 06-03: TBD
+- [ ] 06-01-PLAN.md -- Backtest models, config, BacktestExecutor, BacktestDataStoreWrapper, PnLTracker time injection
+- [ ] 06-02-PLAN.md -- BacktestEngine event-driven replay loop and run_backtest() runner
+- [ ] 06-03-PLAN.md -- ParameterSweep grid search engine and CLI backtest commands
+- [ ] 06-04-PLAN.md -- Dashboard backtest page with equity curve chart and parameter heatmap
 
 ### Phase 7: Dynamic Position Sizing
 **Goal**: Position sizes scale with signal conviction so higher-confidence opportunities get larger allocations, constrained by portfolio-level risk limits
@@ -105,5 +106,5 @@ Phases execute in numeric order: 4 -> 5 -> 6 -> 7
 | 3. Dashboard & Analytics | v1.0 | 5/5 | Complete | 2026-02-11 |
 | 4. Historical Data Foundation | v1.1 | 3/3 | Complete | 2026-02-12 |
 | 5. Signal Analysis & Integration | v1.1 | 3/3 | Complete | 2026-02-12 |
-| 6. Backtest Engine | v1.1 | 0/TBD | Not started | - |
+| 6. Backtest Engine | v1.1 | 0/4 | Not started | - |
 | 7. Dynamic Position Sizing | v1.1 | 0/TBD | Not started | - |
