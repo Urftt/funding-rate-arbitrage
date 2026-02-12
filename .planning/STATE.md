@@ -5,17 +5,17 @@
 See: .planning/PROJECT.md (updated 2026-02-12)
 
 **Core value:** The bot correctly identifies funding rate opportunities and executes delta-neutral positions that collect funding payments without taking directional risk.
-**Current focus:** v1.1 Strategy Intelligence -- Phase 4 complete, ready for Phase 5
+**Current focus:** v1.1 Strategy Intelligence -- Phase 5 in progress
 
 ## Current Position
 
 Milestone: v1.1 Strategy Intelligence
-Phase: 4 of 7 (Historical Data Foundation) -- COMPLETE
-Plan: 3 of 3 in current phase
-Status: Phase Complete
-Last activity: 2026-02-12 -- Completed 04-03-PLAN.md (all 3 plans done)
+Phase: 5 of 7 (Signal Analysis Integration)
+Plan: 2 of 3 in current phase
+Status: Executing
+Last activity: 2026-02-12 -- Completed 05-02-PLAN.md (basis spread + volume trend signals)
 
-Progress: [█████████████░░░░░░░] 64% (v1.0 complete, v1.1 phase 4: 3/3 plans)
+Progress: [██████████████░░░░░░] 71% (v1.0 complete, v1.1 phase 5: 2/3 plans)
 
 ## Performance Metrics
 
@@ -37,8 +37,7 @@ Progress: [█████████████░░░░░░░] 64% (v1
 | Phase | Plans | Duration | Status |
 |-------|-------|----------|--------|
 | 4. Historical Data Foundation | 3/3 | 19min | Complete |
-
-*v1.1 metrics will be tracked as plans complete*
+| 5. Signal Analysis Integration | 2/3 | 4min | In Progress |
 
 ## Accumulated Context
 
@@ -61,6 +60,9 @@ Recent decisions affecting current work:
 - Orchestrator waits up to 30s for funding monitor first poll before historical fetch
 - Dashboard mode delegates SIGINT/SIGTERM to uvicorn for clean shutdown
 - Data status widget uses 4-state Jinja2 conditional (disabled, starting, fetching, normal)
+- Index prices cached in separate dict on FundingMonitor (not modifying FundingRateData v1.0 type)
+- Volume trend is a hard filter: volume_ok=False rejects pair regardless of composite score
+- Graceful degradation: insufficient candle data returns True (don't reject for lack of data)
 
 ### Pending Todos
 
@@ -75,6 +77,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: Completed 04-03-PLAN.md -- Phase 4 fully complete
+Stopped at: Completed 05-02-PLAN.md -- basis spread and volume trend signals
 Resume file: None
-Next step: Begin Phase 5 (Signal Analysis) or orchestrator decides next phase
+Next step: Execute 05-03-PLAN.md (SignalEngine integration and composite scoring)
