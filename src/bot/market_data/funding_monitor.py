@@ -11,7 +11,7 @@ Our strategy: LONG spot + SHORT perp = we COLLECT when rate > 0.
 import asyncio
 import time
 
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from bot.exchange.client import ExchangeClient
 from bot.logging import get_logger
@@ -39,6 +39,7 @@ class FundingMonitor:
         self._ticker_service = ticker_service
         self._poll_interval = poll_interval
         self._funding_rates: dict[str, FundingRateData] = {}
+        self._index_prices: dict[str, Decimal] = {}
         self._running = False
         self._task: asyncio.Task | None = None  # type: ignore[type-arg]
 
@@ -121,6 +122,22 @@ class FundingMonitor:
             except Exception:
                 volume_24h = Decimal("0")
 
+            # Extract index price for basis spread computation
+            index_price_raw = info.get("indexPrice")
+            if index_price_raw is not None:
+                try:
+                    index_price = Decimal(str(index_price_raw))
+                    if index_price > 0:
+                        self._index_prices[symbol] = index_price
+                        # Derive spot symbol: "BTC/USDT:USDT" -> "BTC/USDT"
+                        spot_symbol = symbol.split(":")[0] if ":" in symbol else None
+                        if spot_symbol:
+                            await self._ticker_service.update_price(
+                                spot_symbol, index_price, now
+                            )
+                except (ValueError, ArithmeticError, InvalidOperation):
+                    pass  # Skip unparseable index prices silently
+
             self._funding_rates[symbol] = FundingRateData(
                 symbol=symbol,
                 rate=funding_rate,
@@ -165,3 +182,18 @@ class FundingMonitor:
             key=lambda x: x.rate,
             reverse=True,
         )
+
+    def get_index_price(self, symbol: str) -> Decimal | None:
+        """Return the cached index price for a perpetual symbol.
+
+        The index price is extracted from Bybit's ``indexPrice`` field
+        during each poll cycle and represents the composite spot index
+        for the perpetual contract.
+
+        Args:
+            symbol: The perpetual symbol (e.g., "BTC/USDT:USDT").
+
+        Returns:
+            The index price as Decimal, or None if not available.
+        """
+        return self._index_prices.get(symbol)
