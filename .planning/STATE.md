@@ -11,11 +11,11 @@ See: .planning/PROJECT.md (updated 2026-02-12)
 
 Milestone: v1.1 Strategy Intelligence
 Phase: 6 of 7 (Backtest Engine)
-Plan: 3 of 4 in current phase -- COMPLETE
-Status: Executing
-Last activity: 2026-02-12 -- Completed 06-03-PLAN.md (parameter sweep + CLI)
+Plan: 4 of 4 in current phase -- COMPLETE
+Status: Phase 6 Complete
+Last activity: 2026-02-12 -- Completed 06-04-PLAN.md (backtest dashboard)
 
-Progress: [███████████████████░] 92% (v1.0 complete, v1.1 phase 6: 3/4 plans)
+Progress: [████████████████████] 96% (v1.0 complete, v1.1 phase 6: 4/4 plans)
 
 ## Performance Metrics
 
@@ -38,7 +38,7 @@ Progress: [███████████████████░] 92% (v1
 |-------|-------|----------|--------|
 | 4. Historical Data Foundation | 3/3 | 19min | Complete |
 | 5. Signal Analysis Integration | 3/3 | 11min | Complete |
-| 6. Backtest Engine | 3/4 | 13min | In Progress |
+| 6. Backtest Engine | 4/4 | 18min | Complete |
 
 ## Accumulated Context
 
@@ -77,6 +77,10 @@ Recent decisions affecting current work:
 - CLI uses --backtest flag detection in main() before any bot component init -- zero overhead when not backtesting
 - Memory management discards equity curves from non-best sweep results to prevent growth
 - format_sweep_summary() uses plain print() -- no external table formatting dependency
+- Sweep endpoint returns 501 with message when ParameterSweep module not yet available (graceful degradation)
+- Background backtest tasks use asyncio.create_task with polling instead of WebSocket push for simplicity
+- Equity curve uses Chart.js CDN matching existing dashboard HTMX/CDN pattern
+- Heatmap uses HTML table with inline rgba backgrounds instead of Chart.js matrix plugin for reliability
 
 ### Pending Todos
 
@@ -91,6 +95,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: Completed 06-03-PLAN.md -- parameter sweep + CLI
+Stopped at: Completed 06-04-PLAN.md -- backtest dashboard (phase 6 complete)
 Resume file: None
-Next step: Execute 06-04-PLAN.md (backtest dashboard)
+Next step: Execute phase 07 (Dynamic Position Sizing)
