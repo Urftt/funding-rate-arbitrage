@@ -5,17 +5,17 @@
 See: .planning/PROJECT.md (updated 2026-02-12)
 
 **Core value:** The bot correctly identifies funding rate opportunities and executes delta-neutral positions that collect funding payments without taking directional risk.
-**Current focus:** v1.1 Strategy Intelligence -- Phase 4: Historical Data Foundation
+**Current focus:** v1.1 Strategy Intelligence -- Phase 4 complete, ready for Phase 5
 
 ## Current Position
 
 Milestone: v1.1 Strategy Intelligence
-Phase: 4 of 7 (Historical Data Foundation)
-Plan: 2 of 3 in current phase
-Status: Executing
-Last activity: 2026-02-12 -- Completed 04-02-PLAN.md
+Phase: 4 of 7 (Historical Data Foundation) -- COMPLETE
+Plan: 3 of 3 in current phase
+Status: Phase Complete
+Last activity: 2026-02-12 -- Completed 04-03-PLAN.md (all 3 plans done)
 
-Progress: [███████████░░░░░░░░░] 57% (v1.0 complete, v1.1 phase 4: 2/3 plans)
+Progress: [█████████████░░░░░░░] 64% (v1.0 complete, v1.1 phase 4: 3/3 plans)
 
 ## Performance Metrics
 
@@ -36,7 +36,7 @@ Progress: [███████████░░░░░░░░░] 57% (v1
 
 | Phase | Plans | Duration | Status |
 |-------|-------|----------|--------|
-| 4. Historical Data Foundation | 2/3 | 7min | In Progress |
+| 4. Historical Data Foundation | 3/3 | 19min | Complete |
 
 *v1.1 metrics will be tracked as plans complete*
 
@@ -58,6 +58,9 @@ Recent decisions affecting current work:
 - Backward pagination uses endTime parameter (never startTime alone) per Bybit API requirement
 - Bybit kline response reversed before processing (newest-first pitfall)
 - Incremental updates: DEBUG per-pair, INFO summary (signal-to-noise balance)
+- Orchestrator waits up to 30s for funding monitor first poll before historical fetch
+- Dashboard mode delegates SIGINT/SIGTERM to uvicorn for clean shutdown
+- Data status widget uses 4-state Jinja2 conditional (disabled, starting, fetching, normal)
 
 ### Pending Todos
 
@@ -72,6 +75,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: Completed 04-02-PLAN.md
+Stopped at: Completed 04-03-PLAN.md -- Phase 4 fully complete
 Resume file: None
-Next step: `/gsd:execute-phase 04` (plan 03)
+Next step: Begin Phase 5 (Signal Analysis) or orchestrator decides next phase
