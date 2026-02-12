@@ -12,6 +12,7 @@ Bybit funding convention (from research):
 """
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from decimal import Decimal
 
@@ -70,10 +71,12 @@ class PnLTracker:
         fee_calculator: FeeCalculator,
         ticker_service: TickerService,
         fee_settings: FeeSettings,
+        time_fn: Callable[[], float] = time.time,
     ) -> None:
         self._fee_calculator = fee_calculator
         self._ticker_service = ticker_service
         self._fee_settings = fee_settings
+        self._time_fn = time_fn
         self._position_pnl: dict[str, PositionPnL] = {}
 
     def record_open(self, position: Position, entry_fee: Decimal) -> None:
@@ -125,7 +128,7 @@ class PnLTracker:
         pnl.exit_fee = exit_fee
         pnl.spot_exit_price = spot_exit_price
         pnl.perp_exit_price = perp_exit_price
-        pnl.closed_at = time.time()
+        pnl.closed_at = self._time_fn()
 
         logger.info(
             "pnl_record_close",
@@ -166,7 +169,7 @@ class PnLTracker:
             amount=payment_amount,
             rate=funding_rate,
             mark_price=mark_price,
-            timestamp=time.time(),
+            timestamp=self._time_fn(),
         )
 
         pnl = self._position_pnl[position_id]
