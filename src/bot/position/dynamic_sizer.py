@@ -10,9 +10,13 @@ SIZE-03: Delegates to PositionSizer for qty_step, min_qty, min_notional.
 
 from decimal import Decimal
 
+import structlog
+
 from bot.config import DynamicSizingSettings
 from bot.exchange.types import InstrumentInfo
 from bot.position.sizing import PositionSizer
+
+logger = structlog.get_logger(__name__)
 
 
 class DynamicSizer:
@@ -44,6 +48,12 @@ class DynamicSizer:
     ) -> Decimal | None:
         """Compute USD budget for a new position based on signal score.
 
+        Formula:
+        1. fraction = min_frac + (max_frac - min_frac) * signal_score
+        2. raw_budget = max_position_size_usd * fraction
+        3. remaining = max_portfolio_exposure - current_exposure
+        4. Return min(raw_budget, remaining), or None if remaining <= 0
+
         Args:
             signal_score: Composite signal score in [0, 1] range.
             current_exposure: Sum of all open position notional values in USD.
@@ -51,7 +61,42 @@ class DynamicSizer:
         Returns:
             USD budget for the position, or None if portfolio cap reached.
         """
-        raise NotImplementedError
+        # 1. Map score to allocation fraction (linear interpolation)
+        fraction = (
+            self._settings.min_allocation_fraction
+            + (
+                self._settings.max_allocation_fraction
+                - self._settings.min_allocation_fraction
+            )
+            * signal_score
+        )
+
+        # 2. Raw budget from per-pair max
+        raw_budget = self._max_position_size_usd * fraction
+
+        # 3. Portfolio exposure cap
+        remaining = self._settings.max_portfolio_exposure - current_exposure
+        if remaining <= Decimal("0"):
+            logger.info(
+                "portfolio_cap_reached",
+                current_exposure=str(current_exposure),
+                max_exposure=str(self._settings.max_portfolio_exposure),
+            )
+            return None
+
+        # 4. Effective budget is the smaller of raw and remaining
+        effective_budget = min(raw_budget, remaining)
+
+        logger.debug(
+            "signal_budget_computed",
+            signal_score=str(signal_score),
+            fraction=str(fraction),
+            raw_budget=str(raw_budget),
+            remaining=str(remaining),
+            effective_budget=str(effective_budget),
+        )
+
+        return effective_budget
 
     def calculate_matching_quantity(
         self,
@@ -75,4 +120,17 @@ class DynamicSizer:
         Returns:
             Valid quantity for both legs, or None if constraints not met.
         """
-        raise NotImplementedError
+        budget = self.compute_signal_budget(signal_score, current_exposure)
+        if budget is None:
+            return None
+
+        # Cap available balance by the signal-adjusted budget
+        effective_balance = min(available_balance, budget)
+
+        # Delegate to PositionSizer for exchange constraint validation (SIZE-03)
+        return self._sizer.calculate_matching_quantity(
+            price=price,
+            available_balance=effective_balance,
+            spot_instrument=spot_instrument,
+            perp_instrument=perp_instrument,
+        )
