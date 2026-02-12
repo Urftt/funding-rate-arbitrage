@@ -22,7 +22,7 @@ See `.planning/milestones/v1.0-ROADMAP.md` for full details.
 
 **Milestone Goal:** Evolve the bot from simple threshold-based trading to an intelligent strategy engine that considers funding rate trends, historical patterns, and market conditions -- validated through backtesting. Done when backtest demonstrates improved returns vs v1.0's simple threshold strategy.
 
-- [ ] **Phase 4: Historical Data Foundation** - Fetch, store, and persist historical funding rate and price data from Bybit
+- [x] **Phase 4: Historical Data Foundation** - Fetch, store, and persist historical funding rate and price data from Bybit (completed 2026-02-12)
 - [ ] **Phase 5: Signal Analysis & Integration** - Compute composite entry/exit signals from trends and persistence, wire into orchestrator
 - [ ] **Phase 6: Backtest Engine** - Replay historical data through strategy pipeline with parameter optimization and results visualization
 - [ ] **Phase 7: Dynamic Position Sizing** - Scale position sizes by signal conviction within risk constraints
@@ -42,9 +42,9 @@ See `.planning/milestones/v1.0-ROADMAP.md` for full details.
 **Plans:** 3 plans
 
 Plans:
-- [ ] 04-01-PLAN.md -- Data models, database, config, pair selector, exchange client extensions
-- [ ] 04-02-PLAN.md -- HistoricalDataStore and HistoricalDataFetcher (data pipeline core)
-- [ ] 04-03-PLAN.md -- Orchestrator integration, main.py wiring, dashboard data status widget
+- [x] 04-01-PLAN.md -- Data models, database, config, pair selector, exchange client extensions
+- [x] 04-02-PLAN.md -- HistoricalDataStore and HistoricalDataFetcher (data pipeline core)
+- [x] 04-03-PLAN.md -- Orchestrator integration, main.py wiring, dashboard data status widget
 
 ### Phase 5: Signal Analysis & Integration
 **Goal**: Bot makes entry/exit decisions using composite signals (funding rate trends, persistence, basis spread, volume) instead of simple thresholds, with a feature flag to revert to v1.0 behavior
@@ -103,7 +103,7 @@ Phases execute in numeric order: 4 -> 5 -> 6 -> 7
 | 1. Core Trading Engine | v1.0 | 5/5 | Complete | 2026-02-11 |
 | 2. Multi-Pair Intelligence | v1.0 | 4/4 | Complete | 2026-02-11 |
 | 3. Dashboard & Analytics | v1.0 | 5/5 | Complete | 2026-02-11 |
-| 4. Historical Data Foundation | v1.1 | 0/3 | Planned | - |
+| 4. Historical Data Foundation | v1.1 | 3/3 | Complete | 2026-02-12 |
 | 5. Signal Analysis & Integration | v1.1 | 0/TBD | Not started | - |
 | 6. Backtest Engine | v1.1 | 0/TBD | Not started | - |
 | 7. Dynamic Position Sizing | v1.1 | 0/TBD | Not started | - |
