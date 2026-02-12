@@ -3,7 +3,7 @@
 ## Milestones
 
 - ✅ **v1.0 MVP** -- Phases 1-3 (shipped 2026-02-11)
-- 🚧 **v1.1 Strategy Intelligence** -- Phases 4-7 (in progress)
+- ✅ **v1.1 Strategy Intelligence** -- Phases 4-7 (shipped 2026-02-12)
 
 ## Phases
 
@@ -18,14 +18,14 @@ See `.planning/milestones/v1.0-ROADMAP.md` for full details.
 
 </details>
 
-### 🚧 v1.1 Strategy Intelligence (In Progress)
+### ✅ v1.1 Strategy Intelligence (Shipped 2026-02-12)
 
 **Milestone Goal:** Evolve the bot from simple threshold-based trading to an intelligent strategy engine that considers funding rate trends, historical patterns, and market conditions -- validated through backtesting. Done when backtest demonstrates improved returns vs v1.0's simple threshold strategy.
 
 - [x] **Phase 4: Historical Data Foundation** - Fetch, store, and persist historical funding rate and price data from Bybit (completed 2026-02-12)
 - [x] **Phase 5: Signal Analysis & Integration** - Compute composite entry/exit signals from trends and persistence, wire into orchestrator (completed 2026-02-12)
 - [x] **Phase 6: Backtest Engine** - Replay historical data through strategy pipeline with parameter optimization and results visualization (completed 2026-02-12)
-- [ ] **Phase 7: Dynamic Position Sizing** - Scale position sizes by signal conviction within risk constraints
+- [x] **Phase 7: Dynamic Position Sizing** - Scale position sizes by signal conviction within risk constraints (completed 2026-02-12)
 
 ## Phase Details
 
@@ -92,8 +92,8 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
-- [ ] 07-01-PLAN.md -- DynamicSizer class, DynamicSizingSettings config, TDD tests (SIZE-01, SIZE-02, SIZE-03)
-- [ ] 07-02-PLAN.md -- Orchestrator integration, main.py wiring, backtest engine integration
+- [x] 07-01-PLAN.md -- DynamicSizer class, DynamicSizingSettings config, TDD tests (SIZE-01, SIZE-02, SIZE-03)
+- [x] 07-02-PLAN.md -- Orchestrator integration, main.py wiring, backtest engine integration
 
 ## Progress
 
@@ -108,4 +108,4 @@ Phases execute in numeric order: 4 -> 5 -> 6 -> 7
 | 4. Historical Data Foundation | v1.1 | 3/3 | Complete | 2026-02-12 |
 | 5. Signal Analysis & Integration | v1.1 | 3/3 | Complete | 2026-02-12 |
 | 6. Backtest Engine | v1.1 | 4/4 | Complete | 2026-02-12 |
-| 7. Dynamic Position Sizing | v1.1 | 0/2 | Not started | - |
+| 7. Dynamic Position Sizing | v1.1 | 2/2 | Complete | 2026-02-12 |
