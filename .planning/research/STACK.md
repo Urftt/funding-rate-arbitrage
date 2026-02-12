@@ -1,404 +1,311 @@
-# Technology Stack
+# Stack Research: Strategy Intelligence (v1.1)
 
-**Project:** Crypto Funding Rate Arbitrage Bot
-**Researched:** 2026-02-11
-**Overall Confidence:** MEDIUM (based on training data, not verified with current official sources)
+**Domain:** Funding rate arbitrage -- backtesting, trend analysis, dynamic position sizing
+**Researched:** 2026-02-12
+**Confidence:** HIGH (existing stack is established; new additions are stdlib/well-verified)
 
-## Recommended Stack
+## Existing Stack (DO NOT CHANGE)
 
-### Core Framework & Language
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| Python | 3.11+ | Runtime environment | Async/await performance improvements, best crypto library support, rich data science ecosystem |
-| asyncio | stdlib | Async orchestration | Native async/await for handling multiple websocket connections and concurrent API calls |
+Already validated in v1.0 -- included here for integration context only:
 
-**Rationale:** Python 3.11+ provides significant performance improvements for async workloads (15-60% faster than 3.10). Crypto trading requires handling real-time websocket streams from multiple markets simultaneously - asyncio is the foundation for this. Python's ecosystem dominates crypto tooling.
+| Technology | Version | Purpose |
+|------------|---------|---------|
+| Python | 3.12 | Runtime |
+| ccxt | >=4.5.0 | Exchange API (Bybit) -- async via `ccxt.async_support` |
+| FastAPI | >=0.115 | Dashboard backend |
+| HTMX + Tailwind | -- | Dashboard frontend |
+| Jinja2 | >=3.1 | Template rendering |
+| pydantic | >=2.5 | Config validation, data models |
+| pydantic-settings | >=2.12 | Environment-based config |
+| structlog | >=25.5 | Structured logging |
+| aiolimiter | >=1.2 | Rate limiting |
+| Decimal (stdlib) | -- | All monetary math |
+| asyncio (stdlib) | -- | Concurrency |
+| pytest / pytest-asyncio | >=8.0 / >=0.23 | Testing |
 
-**Confidence:** HIGH (established standard)
+## Recommended NEW Stack Additions
 
----
+### Core: NumPy -- Numerical Foundation
 
-### Exchange API Client
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| pybit | 5.x | Bybit official API wrapper | Official Bybit Python SDK, handles authentication, rate limiting, websocket reconnection |
-| ccxt | 4.x | Fallback/multi-exchange | Industry standard for crypto exchange APIs, use if pybit proves insufficient |
+| Technology | Version | Purpose | Why Recommended |
+|------------|---------|---------|-----------------|
+| numpy | >=2.4.0 | Array math for trend analysis, moving averages, statistical calculations | Industry standard for numerical computing. Required by scipy. EMA/SMA calculations are 10-100x faster than pure Python loops. v2.4.2 is current (Feb 2026), supports Python 3.12. |
 
-**Rationale:** Start with `pybit` as it's Bybit's official library with native support for their latest API versions. It handles the complexity of V5 unified trading API, websocket subscriptions, and authentication. CCXT is the industry standard fallback if you need multi-exchange support later or if pybit lacks features.
+**Confidence:** HIGH -- verified via [numpy.org/news](https://numpy.org/news/) and [PyPI](https://pypi.org/project/numpy/). NumPy 2.4.2 released 2026-02-01, supports Python 3.11-3.14.
 
-**Do NOT use:** Custom REST/websocket implementations from scratch. Exchange APIs have subtle authentication requirements, rate limiting, and websocket reconnection logic that's error-prone to reimplement.
+**Integration:** NumPy arrays work alongside Decimal for different domains. Use Decimal for monetary calculations (position sizes, fees, P&L). Use NumPy for statistical analysis (trend slopes, moving averages, z-scores) where float precision is acceptable and speed matters.
 
-**Confidence:** MEDIUM (training data suggests pybit is official, but version/currency not verified)
+**Pattern:**
+```python
+# Convert Decimal funding rates to numpy for analysis
+rates_decimal: list[Decimal] = [fr.rate for fr in historical_rates]
+rates_np = np.array([float(r) for r in rates_decimal], dtype=np.float64)
 
----
+# Fast statistical analysis
+slope = np.polyfit(np.arange(len(rates_np)), rates_np, 1)[0]
+ema = _exponential_moving_average(rates_np, span=12)
 
-### Database
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| PostgreSQL | 15+ | Persistent storage | ACID compliance for trade history, supports JSONB for flexible schema, excellent time-series support |
-| asyncpg | 0.29+ | Async PostgreSQL driver | Fastest PostgreSQL driver for Python, native async support, connection pooling |
-| TimescaleDB | 2.13+ extension | Time-series optimization | Hypertables for efficient funding rate history queries, continuous aggregates for analytics |
-
-**Rationale:**
-- **PostgreSQL** is the gold standard for financial data (ACID transactions critical for money). TimescaleDB extension provides time-series optimizations without leaving Postgres ecosystem.
-- **asyncpg** is 3-5x faster than psycopg2 and natively async (critical when your bot is handling real-time data).
-- **Alternative considered:** SQLite - too risky for production money (file locking issues under high concurrency). Redis - not ACID compliant, better as cache layer.
-
-**Confidence:** HIGH (established pattern for financial applications)
-
----
-
-### Data Processing & Analysis
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| pandas | 2.1+ | Data analysis | Industry standard for funding rate calculations, backtesting, P&L analysis |
-| numpy | 1.26+ | Numerical computation | Fast array operations for position sizing, risk calculations |
-| polars | 0.20+ | High-performance alternative | 5-10x faster than pandas for large datasets, consider for backtesting |
-
-**Rationale:** Pandas is the standard for financial data analysis. However, for real-time bot logic, avoid pandas - use native Python/numpy for hot path to minimize latency. Reserve pandas for batch analysis and dashboard data preparation.
-
-**When to use:** Pandas for analytics/backtesting. Native Python for trade execution logic.
-
-**Confidence:** HIGH (industry standard)
+# Results back to Decimal for trading decisions
+if Decimal(str(slope)) > threshold:
+    ...
+```
 
 ---
 
-### Web Dashboard
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| FastAPI | 0.109+ | Backend API | Modern async framework, auto-generated OpenAPI docs, WebSocket support for live updates |
-| uvicorn | 0.27+ | ASGI server | Production-grade async server, supports graceful shutdown |
-| React | 18.2+ | Frontend UI | Component architecture, rich ecosystem for trading dashboards |
-| Next.js | 14+ | React framework | SSR, API routes, TypeScript support, production optimizations |
-| TanStack Query | 5.x | Data fetching | Real-time data sync, caching, WebSocket integration |
-| shadcn/ui | latest | UI components | Modern, accessible components; popular for trading dashboards |
-| Recharts | 2.10+ | Charts/graphs | React-native charts for P&L, funding rate visualizations |
+### Core: SciPy -- Statistical Testing and Optimization
 
-**Rationale:**
-- **FastAPI** is the modern Python standard for APIs - native async, automatic validation, WebSocket support for pushing live position updates to dashboard.
-- **React/Next.js** provides the richest ecosystem for building real-time trading dashboards. TanStack Query (formerly React Query) handles the complexity of real-time data synchronization.
-- **Alternative considered:** Streamlit/Dash - too limiting for custom trading UI, poor real-time update story.
+| Technology | Version | Purpose | Why Recommended |
+|------------|---------|---------|-----------------|
+| scipy | >=1.17.0 | `scipy.stats.linregress` for trend detection, `scipy.optimize.brute` for parameter grid search, `scipy.stats.percentileofscore` for rate regime classification | Provides rigorous statistical tests (p-values for trend significance) that hand-rolled code cannot match. Grid search via `brute()` is perfect for small parameter spaces (3-5 params) without adding heavy frameworks. |
 
-**Confidence:** MEDIUM-HIGH (FastAPI is established; React stack is standard but specific libraries need verification)
+**Confidence:** HIGH -- verified via [SciPy docs v1.17.0](https://docs.scipy.org/doc/scipy/release.html). Released 2026-01-10, requires Python 3.11-3.14 and NumPy >=1.26.4.
 
----
+**Why scipy.optimize.brute over Optuna:** Our backtesting parameter space is small (entry threshold, exit threshold, min holding periods, max positions, position size -- roughly 5 parameters). `scipy.optimize.brute` handles this cleanly with zero additional dependencies beyond scipy itself. Optuna (v4.7.0) pulls in SQLAlchemy, Alembic, colorlog, tqdm, and pyyaml -- heavy dependency bloat for a problem that grid search solves in seconds. Save Optuna for if/when the parameter space grows to 10+ dimensions or needs Bayesian optimization.
 
-### Task Scheduling & Background Jobs
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| asyncio.create_task | stdlib | Concurrent tasks | Native async task spawning for bot loops (market scanner, position manager) |
-| APScheduler | 3.10+ | Scheduled tasks | Cron-like scheduling for periodic tasks (funding collection, rebalancing checks) |
+**Key functions we will use:**
 
-**Rationale:** Don't overcomplicate with Celery for a single-instance bot. Use asyncio for concurrent event loops and APScheduler for time-based triggers. Celery adds Redis/RabbitMQ dependency that's unnecessary here.
+```python
+from scipy.stats import linregress, percentileofscore
+from scipy.optimize import brute
 
-**Do NOT use:** Celery (overkill for single-bot architecture, adds message broker complexity)
+# Trend detection: Is funding rate increasing or decreasing?
+slope, intercept, r_value, p_value, std_err = linregress(
+    np.arange(len(rates)), rates
+)
+is_trending = p_value < 0.05 and abs(slope) > min_slope
 
-**Confidence:** HIGH (appropriate for project scale)
+# Regime classification: Where does current rate sit historically?
+percentile = percentileofscore(historical_rates, current_rate)
 
----
+# Parameter optimization for backtesting
+def objective(params):
+    entry, exit_rate, min_hold = params
+    return -backtest_sharpe(entry, exit_rate, min_hold)  # Minimize negative Sharpe
 
-### Configuration & Secrets Management
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| pydantic | 2.5+ | Config validation | Type-safe config with validation, env var loading, excellent error messages |
-| pydantic-settings | 2.1+ | Settings management | Load config from env vars, .env files, with validation |
-| python-dotenv | 1.0+ | .env file loading | Load environment variables from .env files in development |
-
-**Rationale:** Pydantic v2 provides runtime type checking for configuration - critical for avoiding misconfigurations that could lose money. Catch invalid API keys, malformed trade sizes, etc. at startup, not when placing orders.
-
-**Confidence:** HIGH (industry best practice)
+optimal = brute(objective, ranges=[
+    (0.0001, 0.001, 0.0001),  # entry threshold range
+    (0.00005, 0.0005, 0.00005),  # exit threshold range
+    (1, 8, 1),  # min holding periods
+])
+```
 
 ---
 
-### Logging & Monitoring
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| structlog | 24.1+ | Structured logging | JSON logs with context (trade_id, pair, side), queryable, integration-ready |
-| prometheus-client | 0.19+ | Metrics | Time-series metrics (funding rate deltas, position count, API latency) |
-| Grafana | 10+ | Metrics visualization | Industry standard for time-series dashboards |
+### Core: aiosqlite -- Async Historical Data Storage
 
-**Rationale:**
-- **structlog** outputs JSON logs with structured context - critical for debugging failed trades. Can add trade_id, pair, timestamp to every log line.
-- **Prometheus + Grafana** is the standard for monitoring trading bots - track metrics like "funding rate vs actual collected", "API error rate", "position count over time".
+| Technology | Version | Purpose | Why Recommended |
+|------------|---------|---------|-----------------|
+| aiosqlite | >=0.22.0 | Async SQLite for persisting historical funding rates, OHLCV data, and backtest results | Zero-infrastructure storage that fits the existing asyncio architecture. No database server needed. SQLite with WAL mode handles concurrent reads (dashboard) with single writer (data collector) at thousands of ops/sec. stdlib sqlite3 underneath. |
 
-**Alternative considered:** Python logging module - lacks structured logging, hard to query production logs.
+**Confidence:** HIGH -- verified via [PyPI](https://pypi.org/project/aiosqlite/) and [GitHub](https://github.com/omnilib/aiosqlite). v0.22.1 released 2025-12-23, requires Python >=3.9.
 
-**Confidence:** HIGH (established monitoring stack)
+**Why aiosqlite over PostgreSQL/TimescaleDB:** The v1.0 architecture is intentionally stateless (in-memory dicts). Historical data for backtesting needs persistence, but PostgreSQL adds operational complexity (server process, connection pooling, migrations) that this project does not need. SQLite files are self-contained, require no server, and can store millions of funding rate records efficiently. The data volume is modest: ~200 symbols x 3 rates/day x 365 days = ~219K rows/year.
 
----
+**Why aiosqlite over sync sqlite3:** The bot runs on asyncio. Blocking the event loop with synchronous SQLite calls would freeze the trading engine during database writes. aiosqlite wraps sqlite3 in a background thread with an async interface that integrates naturally with the existing `async def` patterns throughout the codebase.
 
-### Testing
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| pytest | 7.4+ | Test framework | Industry standard, excellent async support, rich plugin ecosystem |
-| pytest-asyncio | 0.23+ | Async test support | Run async tests with pytest |
-| pytest-mock | 3.12+ | Mocking | Mock exchange API responses for deterministic testing |
-| pytest-cov | 4.1+ | Coverage reporting | Track test coverage |
-| hypothesis | 6.98+ | Property-based testing | Fuzz test position sizing, funding calculations |
-
-**Rationale:** Testing is critical for money-handling code. Mock exchange responses to test bot logic without live API calls. Use hypothesis for property-based testing of mathematical calculations (position sizing should never exceed balance).
-
-**Confidence:** HIGH (pytest is Python standard)
-
----
-
-### Code Quality
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| ruff | 0.1+ | Linting & formatting | 10-100x faster than pylint/black, combines linting + formatting |
-| mypy | 1.8+ | Type checking | Static type checking prevents runtime errors in trading logic |
-| pre-commit | 3.6+ | Git hooks | Auto-run formatters and linters before commits |
-
-**Rationale:**
-- **ruff** has replaced black + isort + flake8 as the modern standard - single tool, 100x faster.
-- **mypy** prevents type errors in critical code paths (calculating position sizes, parsing API responses).
-
-**Confidence:** HIGH (ruff/mypy are current best practices)
-
----
-
-### Deployment & Containerization
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| Docker | 24+ | Containerization | Reproducible deployments, isolate dependencies |
-| docker-compose | 2.23+ | Multi-container orchestration | Define bot + postgres + grafana stack in one file |
-| Python virtual env | stdlib | Dependency isolation | Local development isolation |
-
-**Rationale:** Docker ensures your bot runs identically in dev and prod. docker-compose defines the full stack (bot, database, monitoring) for one-command startup.
-
-**Do NOT use:** Kubernetes for a single bot - massive overkill. Docker Compose is sufficient.
-
-**Confidence:** HIGH (standard practice)
+**Schema pattern:**
+```python
+async with aiosqlite.connect("data/historical.db") as db:
+    await db.execute("PRAGMA journal_mode=WAL")
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS funding_rates (
+            symbol TEXT NOT NULL,
+            timestamp_ms INTEGER NOT NULL,
+            rate TEXT NOT NULL,  -- Store as text for Decimal precision
+            PRIMARY KEY (symbol, timestamp_ms)
+        )
+    """)
+```
 
 ---
 
 ## Supporting Libraries
 
-### Position & Risk Management
-| Library | Version | Purpose | When to Use |
-|---------|---------|---------|-------------|
-| decimal | stdlib | Precise decimal math | ALL monetary calculations - never use float for money |
-| pydantic | 2.5+ | Data validation | Validate API responses, trade parameters before execution |
+### NO new supporting libraries needed
 
-**Rationale:** **CRITICAL** - Never use Python floats for money. Use `Decimal` for all price, quantity, balance calculations. Floating point errors can cause losses (e.g., 0.1 + 0.2 = 0.30000000000000004).
+The following capabilities will be built with the core additions above plus stdlib:
 
-**Confidence:** HIGH (fundamental best practice)
+| Capability | Implementation | Libraries Used |
+|-----------|----------------|----------------|
+| Exponential Moving Average (EMA) | ~10 lines of numpy code | numpy |
+| Simple Moving Average (SMA) | `np.convolve()` with uniform weights | numpy |
+| Linear trend detection | `scipy.stats.linregress()` | scipy |
+| Rate regime classification | `scipy.stats.percentileofscore()` | scipy |
+| Funding rate mean reversion score | Z-score: `(rate - mean) / std` | numpy |
+| Parameter grid search | `scipy.optimize.brute()` | scipy |
+| Historical data persistence | SQLite with WAL mode | aiosqlite |
+| Backtest event replay | Custom iterator over historical data | stdlib (dataclasses, itertools) |
+| Conviction scoring | Weighted sum of trend + regime + momentum signals | numpy |
+| Kelly criterion position sizing | `f = (bp - q) / b` | stdlib Decimal |
 
 ---
 
-### WebSocket Management
-| Library | Version | Purpose | When to Use |
-|---------|---------|---------|-------------|
-| websockets | 12+ | WebSocket client | If pybit's websocket client is insufficient |
-| aiohttp | 3.9+ | Async HTTP client | Alternative to requests for async REST calls |
+## Historical Data Acquisition (via existing ccxt)
 
-**Rationale:** Use exchange library's websocket client first (pybit). Only drop to raw websockets if you need custom reconnection logic or the SDK is buggy.
+No new library needed. ccxt already supports the required Bybit API endpoints.
 
-**Confidence:** MEDIUM (dependent on pybit quality)
+### Funding Rate History
+
+ccxt method: `exchange.fetch_funding_rate_history(symbol, since, limit, params)`
+
+Bybit API: `GET /v5/market/funding/history` -- returns up to 200 records per call. Pagination via `endTime` parameter (walk backwards). Public endpoint but ccxt may require auth config.
+
+**Known issues (verified via GitHub issues):**
+- Pagination with `since` + `limit` has bugs in some ccxt versions. Use `params={"paginate": True}` for automatic pagination, or implement manual backwards-walking with `endTime`.
+- Max 200 records per request from Bybit API.
+
+### OHLCV / Kline History
+
+ccxt method: `exchange.fetch_ohlcv(symbol, timeframe, since, limit, params)`
+
+Bybit API: `GET /v5/market/kline` -- returns up to 1000 records per call. Available intervals: 1, 3, 5, 15, 30, 60, 120, 240, 360, 720, D, W, M.
+
+**Data collection strategy:**
+1. On first run, backfill historical data (walk backwards from now)
+2. On subsequent runs, fetch only new data since last stored timestamp
+3. Store in SQLite via aiosqlite
+4. Backtest engine reads from SQLite, never hits API
+
+---
+
+## ExchangeClient Interface Extension
+
+The existing `ExchangeClient` ABC needs two new methods for data collection:
+
+```python
+# Add to bot/exchange/client.py
+@abstractmethod
+async def fetch_funding_rate_history(
+    self, symbol: str, since: int | None = None, limit: int | None = None,
+    params: dict | None = None,
+) -> list[dict]:
+    """Fetch historical funding rates for a symbol."""
+    ...
+
+@abstractmethod
+async def fetch_ohlcv(
+    self, symbol: str, timeframe: str = "1h",
+    since: int | None = None, limit: int | None = None,
+    params: dict | None = None,
+) -> list[list]:
+    """Fetch OHLCV candles for a symbol."""
+    ...
+```
+
+These map directly to ccxt's existing async methods -- the `BybitClient` implementation is trivial delegation.
 
 ---
 
 ## Alternatives Considered
 
-| Category | Recommended | Alternative | Why Not |
-|----------|-------------|-------------|---------|
-| Language | Python 3.11+ | JavaScript/Node.js | Weaker typing, less robust numerical libraries, fewer exchange SDKs |
-| Language | Python 3.11+ | Rust | Overkill for strategy complexity, slower development, learning curve |
-| Database | PostgreSQL + TimescaleDB | MongoDB | No ACID transactions, poor for financial data |
-| Database | PostgreSQL + TimescaleDB | SQLite | File locking issues under concurrent writes, not production-ready for money |
-| API Framework | FastAPI | Flask | No native async, no automatic validation, older paradigm |
-| API Framework | FastAPI | Django | Too heavyweight, admin UI unnecessary, slower for async workloads |
-| Task Queue | asyncio | Celery | Adds Redis/RabbitMQ complexity, unnecessary for single-instance bot |
-| Dashboard | React + FastAPI | Streamlit | Poor real-time support, limited customization, not production-grade |
-| Dashboard | React + FastAPI | Dash (Plotly) | Callback hell for complex UIs, React ecosystem richer |
-| Formatting | ruff | black + isort + flake8 | Slower, requires multiple tools |
+| Recommended | Alternative | Why Not |
+|-------------|-------------|---------|
+| numpy + scipy | pandas | Pandas is 30MB+ and pulls in pytz, dateutil, etc. We need array math and stats, not DataFrames. NumPy + SciPy are leaner and the existing codebase has zero pandas patterns to maintain consistency with. |
+| numpy + scipy | polars | Same argument as pandas -- we don't need DataFrame operations. Polars is excellent but adds unnecessary abstraction for our use case (arrays of Decimal-converted floats). |
+| scipy.optimize.brute | optuna (v4.7.0) | Optuna pulls SQLAlchemy, Alembic, colorlog, tqdm, pyyaml as mandatory deps. Our parameter space is 3-5 dimensions -- grid search handles this trivially. Optuna's Bayesian optimization is overkill and the dependency footprint is unacceptable for this scope. |
+| scipy.optimize.brute | scikit-learn GridSearchCV | scikit-learn is 50MB+ with joblib, threadpoolctl dependencies. Designed for ML model hyperparams, not trading strategy params. |
+| aiosqlite (SQLite) | PostgreSQL + asyncpg | PostgreSQL requires a running server process, connection pooling config, and schema migration tooling. Our data volume (~200K rows/year) is trivial for SQLite. The bot runs single-instance. No concurrent write contention. |
+| aiosqlite (SQLite) | JSON files | JSON files work for prototyping (as the 50shadesofgwei project demonstrates) but degrade with millions of records. SQLite provides indexed queries, range scans by timestamp, and atomic writes without custom serialization code. |
+| aiosqlite (SQLite) | DuckDB | DuckDB is excellent for analytics but adds a 50MB+ binary dependency. SQLite is stdlib-adjacent (ships with Python), and our query patterns are simple (range scans by symbol+timestamp). |
+| Custom backtest engine | backtesting.py | backtesting.py is designed for price-action strategies (buy/sell signals on OHLCV). Funding rate arbitrage is fundamentally different: entry/exit on funding rate thresholds, P&L from funding payments not price movement. A custom engine that replays funding rate events is simpler and more accurate than adapting a price-action framework. |
+| Custom backtest engine | backtrader | Same issue as backtesting.py -- designed for directional trading. Also, backtrader is not actively maintained (last release 2019). |
+| pymannkendall | scipy.stats.linregress | pymannkendall (v1.4.3, last updated Jan 2023) is unmaintained. scipy.stats.linregress provides trend detection with p-values. For non-parametric needs, implement Mann-Kendall in ~20 lines of numpy rather than adding a stale dependency. |
+
+---
+
+## What NOT to Add
+
+| Avoid | Why | Use Instead |
+|-------|-----|-------------|
+| pandas | Heavy (30MB+), introduces DataFrame paradigm foreign to codebase, not needed for array operations | numpy for arrays, Decimal for money |
+| polars | Unnecessary DataFrame abstraction for this use case | numpy |
+| optuna | Pulls SQLAlchemy/Alembic/5+ transitive deps for a 3-5 param optimization | scipy.optimize.brute |
+| scikit-learn | 50MB+ ML framework for a simple grid search | scipy.optimize.brute |
+| ta-lib / ta (technical analysis) | Designed for price-action indicators (RSI, MACD). Funding rate analysis needs custom metrics, not stock market indicators | numpy rolling calculations |
+| backtrader / backtesting.py | Price-action backtesting frameworks incompatible with funding rate arbitrage model | Custom replay engine |
+| PostgreSQL / asyncpg | Operational overhead for modest data volume | aiosqlite (SQLite) |
+| Redis | No cache invalidation needs; in-memory dicts sufficient for hot data | Existing dict-based caches |
+| pymannkendall | Unmaintained since Jan 2023 | scipy.stats.linregress or hand-rolled Mann-Kendall with numpy |
+| statsmodels | Heavy dependency (pulls patsy, scipy already covers what we need) | scipy.stats |
 
 ---
 
 ## Installation
 
-### Core Dependencies
+### New production dependencies
 
 ```bash
-# Exchange API
-pip install pybit  # Bybit official SDK
-
-# Database
-pip install asyncpg psycopg2-binary  # Postgres drivers
-pip install SQLAlchemy alembic  # ORM and migrations (optional but recommended)
-
-# Data processing
-pip install pandas numpy polars  # Data analysis
-
-# Web framework
-pip install "fastapi[all]" uvicorn[standard]  # API + server
-
-# Configuration & validation
-pip install pydantic pydantic-settings python-dotenv
-
-# Logging & monitoring
-pip install structlog prometheus-client
-
-# Task scheduling
-pip install APScheduler
-
-# Utilities
-# (decimal is stdlib, no install needed)
+pip install "numpy>=2.4.0" "scipy>=1.17.0" "aiosqlite>=0.22.0"
 ```
 
-### Dev Dependencies
+### pyproject.toml additions
 
-```bash
-pip install -D pytest pytest-asyncio pytest-mock pytest-cov hypothesis  # Testing
-pip install -D ruff mypy pre-commit  # Code quality
-pip install -D ipython jupyter  # Interactive development
+```toml
+dependencies = [
+    # ... existing deps ...
+    "numpy>=2.4.0",
+    "scipy>=1.17.0",
+    "aiosqlite>=0.22.0",
+]
 ```
 
-### Frontend (Next.js Dashboard)
+### No new dev dependencies needed
 
-```bash
-npx create-next-app@latest dashboard --typescript --tailwind --app
-cd dashboard
-npm install @tanstack/react-query recharts
-npx shadcn-ui@latest init
-```
+The existing pytest + pytest-asyncio + pytest-mock stack covers testing for all new features. No additional test frameworks required.
 
 ---
 
-## Architecture Integration Notes
+## Version Compatibility Matrix
 
-### Hot Path vs Cold Path
+| Package | Version | Python 3.12 | Depends On | Verified |
+|---------|---------|-------------|------------|----------|
+| numpy | >=2.4.0 | Yes (3.11-3.14) | None | [PyPI](https://pypi.org/project/numpy/) 2026-02-01 |
+| scipy | >=1.17.0 | Yes (3.11-3.14) | numpy >=1.26.4 | [SciPy docs](https://docs.scipy.org/doc/scipy/release.html) 2026-01-10 |
+| aiosqlite | >=0.22.0 | Yes (>=3.9) | None (wraps stdlib sqlite3) | [PyPI](https://pypi.org/project/aiosqlite/) 2025-12-23 |
 
-**Hot Path (sub-second latency required):**
-- Market data websocket handling
-- Funding rate calculations
-- Trade execution decisions
-- Position sizing
-
-**Stack:** Pure Python with asyncio, numpy for calculations, NO pandas, NO database writes in critical path.
-
-**Cold Path (can tolerate seconds of latency):**
-- Persisting trade history to database
-- Dashboard data queries
-- Analytics and backtesting
-- Logging
-
-**Stack:** Pandas for analysis, database writes, JSON serialization for API responses.
+**Total new dependencies: 3 packages** (numpy, scipy, aiosqlite). SciPy depends on NumPy, so the actual new dependency tree is: numpy + scipy + aiosqlite. No transitive surprises.
 
 ---
 
-### Deployment Phases
+## Stack Patterns by Feature Area
 
-**Phase 1: Local Development**
-- Python venv
-- Local PostgreSQL via Docker
-- .env file for config
-- Simple logging to stdout
+### If building the backtesting engine:
+- Use aiosqlite for historical data storage (funding rates + OHLCV)
+- Use ccxt's existing `fetch_funding_rate_history` and `fetch_ohlcv` for data collection
+- Use numpy for fast array operations during simulation replay
+- Use scipy.optimize.brute for parameter optimization
+- Use existing Decimal-based PnL/fee calculators for accurate simulation
+- Build custom event replay (not a framework) -- iterate over time-sorted records
 
-**Phase 2: Production (Single Server)**
-- Docker Compose (bot + postgres + grafana)
-- Structured logging to files + stdout
-- Prometheus metrics
-- Automated restart on crash
+### If building trend analysis:
+- Use numpy for EMA, SMA, rolling statistics (mean, std, z-score)
+- Use scipy.stats.linregress for linear trend detection with p-value significance
+- Use scipy.stats.percentileofscore for historical regime classification
+- Store computed signals in memory (small footprint, recomputed on startup)
 
-**Phase 3: Enhanced (If Scaling)**
-- Separate database server
-- Log aggregation (e.g., Loki)
-- Alerting (e.g., AlertManager)
-
----
-
-## Version Verification Needed
-
-**CONFIDENCE CAVEAT:** The following need verification against official sources before implementation:
-
-| Library | Stated Version | Why Uncertain |
-|---------|---------------|---------------|
-| pybit | 5.x | Training data may be outdated; verify current Bybit SDK version |
-| ccxt | 4.x | CCXT updates frequently; check latest stable |
-| FastAPI | 0.109+ | Verify current stable release |
-| pydantic | 2.5+ | v2 was major rewrite; confirm current best practices |
-| shadcn/ui | latest | Rapidly evolving; check current installation method |
-| TimescaleDB | 2.13+ | Verify compatibility with Postgres 15+ |
-
-**Action Required:** Before finalizing stack, verify versions via:
-1. Official GitHub repositories (check latest releases)
-2. PyPI for Python packages (latest stable versions)
-3. Official documentation sites
-
----
-
-## Critical Warnings
-
-### Don't Use Floats for Money
-```python
-# WRONG
-price = 0.1
-quantity = 0.2
-total = price + quantity  # 0.30000000000000004
-
-# CORRECT
-from decimal import Decimal
-price = Decimal("0.1")
-quantity = Decimal("0.2")
-total = price + quantity  # Decimal('0.3')
-```
-
-### Don't Block the Event Loop
-```python
-# WRONG - blocks async loop
-def get_funding_rate():
-    return requests.get(url)  # synchronous call blocks everything
-
-# CORRECT
-async def get_funding_rate():
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as resp:
-            return await resp.json()
-```
-
-### Don't Skip Input Validation
-```python
-# WRONG
-def open_position(size: str):  # size could be "abc" or negative
-    exchange.place_order(size=size)
-
-# CORRECT
-class PositionParams(BaseModel):
-    size: Decimal = Field(gt=0)  # pydantic validates > 0
-
-def open_position(params: PositionParams):
-    exchange.place_order(size=params.size)
-```
+### If building dynamic position sizing:
+- Use existing Decimal arithmetic (PositionSizer pattern) for all sizing math
+- Use numpy only for conviction score calculation (weighted signal aggregation)
+- Convert conviction score to Decimal before applying to position size
+- Kelly criterion and risk constraints stay in pure Decimal -- no numpy needed for money math
 
 ---
 
 ## Sources
 
-**Confidence Assessment:** MEDIUM overall
+- [NumPy releases](https://github.com/numpy/numpy/releases) -- v2.4.2 confirmed Feb 2026
+- [SciPy v1.17.0 release notes](https://docs.scipy.org/doc/scipy/release.html) -- confirmed Jan 2026
+- [aiosqlite on PyPI](https://pypi.org/project/aiosqlite/) -- v0.22.1 confirmed Dec 2025
+- [Bybit API: Get Funding Rate History](https://bybit-exchange.github.io/docs/v5/market/history-fund-rate) -- 200 records/page, pagination via endTime
+- [Bybit API: Get Kline](https://bybit-exchange.github.io/docs/v5/market/kline) -- 1000 records/page, intervals 1m to Monthly
+- [ccxt fetchFundingRateHistory issues](https://github.com/ccxt/ccxt/issues/15990) -- pagination bugs documented
+- [ccxt fetchFundingRateHistory auth](https://github.com/ccxt/ccxt/issues/15974) -- auth may be required
+- [Optuna v4.7.0](https://pypi.org/project/optuna/) -- confirmed but rejected due to dependency weight
+- [pymannkendall](https://pypi.org/project/pymannkendall/) -- v1.4.3, last updated Jan 2023, rejected as unmaintained
+- [scipy.optimize.brute docs](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.brute.html) -- grid search reference
+- [scipy.stats.linregress docs](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.linregress.html) -- trend detection reference
+- [50shadesofgwei/funding-rate-arbitrage backtesting](https://deepwiki.com/50shadesofgwei/funding-rate-arbitrage/5.1-backtesting-framework) -- reference architecture using JSON files
 
-Due to tool restrictions, this research is based on training data (knowledge cutoff January 2025) rather than verified current sources. The stack represents established patterns in the Python crypto trading space, but specific version numbers and library recommendations should be verified via:
-
-- **PyPI** (https://pypi.org) - Current Python package versions
-- **Bybit API Docs** (https://bybit-exchange.github.io/docs/) - Official pybit SDK documentation
-- **FastAPI Docs** (https://fastapi.tiangolo.com/) - Current best practices
-- **TimescaleDB Docs** (https://docs.timescale.com/) - Postgres extension setup
-
-**Recommendations:**
-1. Verify all package versions via PyPI before installation
-2. Check Bybit's official documentation for current SDK recommendations
-3. Review FastAPI changelog for breaking changes since v0.109
-4. Confirm TimescaleDB compatibility with chosen Postgres version
-
-**Areas of HIGH confidence** (unlikely to have changed):
-- Python 3.11+ for async performance
-- PostgreSQL for financial data (ACID compliance)
-- Decimal for monetary calculations
-- asyncio for concurrent operations
-- pytest for testing
-
-**Areas requiring verification:**
-- Specific library versions
-- pybit vs ccxt for Bybit integration
-- Current React/Next.js best practices
-- shadcn/ui installation method
+---
+*Stack research for: Funding Rate Arbitrage v1.1 Strategy Intelligence*
+*Researched: 2026-02-12*

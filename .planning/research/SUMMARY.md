@@ -1,353 +1,265 @@
 # Project Research Summary
 
-**Project:** Crypto Funding Rate Arbitrage Bot
-**Domain:** Cryptocurrency derivatives arbitrage (spot-perpetual delta neutral strategy)
-**Researched:** 2026-02-11
-**Confidence:** MEDIUM
+**Project:** Funding Rate Arbitrage v1.1 - Strategy Intelligence
+**Domain:** Cryptocurrency trading bot enhancement (backtesting, trend analysis, dynamic position sizing)
+**Researched:** 2026-02-12
+**Confidence:** MEDIUM-HIGH
 
 ## Executive Summary
 
-This project aims to build an automated trading bot that profits from funding rate arbitrage on cryptocurrency perpetual futures. The strategy is delta-neutral: simultaneously holding long spot positions and short perpetual positions to collect funding payments paid by longs to shorts every 8 hours. Experts build these systems using Python 3.11+ with asyncio for concurrent API handling, event-driven architectures for real-time market data processing, and strict risk management to maintain delta neutrality.
+This project enhances an existing, working funding rate arbitrage bot (v1.0) by adding intelligent strategy capabilities. The v1.0 bot successfully executes delta-neutral funding rate arbitrage using simple threshold-based decisions (enter at 0.03%, exit at 0.01%, fixed $1000 positions). v1.1 adds three capabilities: (1) backtesting infrastructure to validate strategy improvements, (2) funding rate trend analysis to make smarter entry/exit decisions, and (3) dynamic position sizing based on conviction scores.
 
-The recommended approach is to start with a paper trading MVP that validates core trading logic before risking real capital. Focus Phase 1 on the critical path: exchange API integration, simultaneous order execution to maintain delta neutrality, and basic position tracking. Phase 2 adds multi-pair ranking and real money trading with comprehensive risk controls. Phase 3 introduces advanced position management and analytics. This staged approach allows early validation of the most critical pitfalls (incomplete delta hedging, funding rate sign confusion, fee impact) before they can cause significant losses.
+The recommended approach is to build incrementally in strict dependency order: first the historical data foundation (aiosqlite for storage, ccxt for fetching), then signal analysis (EMA-based trend detection, persistence scoring), then backtest engine (reusing existing components via the Executor ABC pattern), and finally dynamic position sizing. The critical architectural principle is to extend, not replace - the v1.0 system works, and every v1.1 addition must preserve the ability to fall back to v1.0 behavior.
 
-Key risks center on maintaining delta neutrality during volatile markets, correctly interpreting funding rate signs, and ensuring fees don't exceed funding income. Prevention requires simultaneous order placement with strict timeouts, exchange-specific testing of funding conventions, and comprehensive fee modeling before opening positions. The technical stack (Python asyncio, PostgreSQL with TimescaleDB, FastAPI) is well-suited to handle multiple concurrent market connections while maintaining reliable transaction history. Conservative leverage (2-3x maximum) and continuous margin monitoring prevent cascade liquidations during extreme volatility.
+The primary risks are (1) look-ahead bias in backtesting making the strategy appear better than it is, (2) overfitting parameters to historical regimes that won't persist, and (3) breaking the working v1.0 system during integration. Mitigation: strict temporal data access controls, walk-forward validation instead of single train/test splits, and optional injection of all new components with feature flags. The research shows funding rate arbitrage is fundamentally different from price-action trading - standard technical indicators and backtesting frameworks do not apply. Custom, domain-specific implementations are required.
 
 ## Key Findings
 
 ### Recommended Stack
 
-Python 3.11+ with asyncio forms the foundation, providing 15-60% better async performance than previous versions and the best crypto library ecosystem. The core stack prioritizes reliability for financial operations: PostgreSQL with TimescaleDB extension for ACID-compliant transaction history and time-series funding rate data, asyncpg for high-performance async database access, and the Decimal library (not floats) for all monetary calculations to prevent precision errors.
+Research confirms the v1.0 stack (Python 3.12, ccxt, FastAPI, Decimal-based math) is solid. Three new dependencies are recommended: **numpy 2.4.0+** for array-based trend calculations (10-100x faster than pure Python loops), **scipy 1.17.0+** for statistical analysis (linear regression with p-values, grid search optimization), and **aiosqlite 0.22.0+** for async SQLite persistence of historical data.
 
 **Core technologies:**
-- **Python 3.11+ with asyncio**: Native async/await for handling multiple websocket connections and concurrent API calls to exchanges
-- **pybit 5.x or ccxt 4.x**: Exchange API client (start with pybit as Bybit's official SDK, fallback to ccxt if needed)
-- **PostgreSQL 15+ with TimescaleDB**: ACID-compliant storage for trade history with time-series optimizations for funding rate analytics
-- **FastAPI 0.109+ with uvicorn**: Modern async web framework for dashboard API with automatic validation and WebSocket support for live updates
-- **React 18.2+ with Next.js 14+**: Frontend framework for real-time trading dashboard with TanStack Query for data synchronization
-- **structlog + prometheus-client**: Structured logging with JSON output and time-series metrics for monitoring bot performance
-- **Decimal (stdlib)**: Mandatory for all monetary calculations to prevent floating-point precision errors that cause losses
+- **numpy**: Fast numerical computation for EMA, moving averages, z-scores - required by scipy, industry standard for array math
+- **scipy**: Linear regression for trend detection (`scipy.stats.linregress`), grid search for parameter optimization (`scipy.optimize.brute`) - rigorous statistical tests without ML framework bloat
+- **aiosqlite**: Async SQLite wrapper for historical data persistence - zero-infrastructure, integrates with existing asyncio architecture, sufficient for ~200K rows/year of funding rate data
 
-**Critical warnings from stack research:**
-- Never use Python floats for money calculations (use Decimal)
-- Don't block the async event loop with synchronous API calls
-- Use websockets for market data, REST only for state-changing operations (orders)
-- Avoid Celery complexity — asyncio + APScheduler sufficient for single-bot architecture
-- All package versions need verification against current PyPI/official docs (research based on training data)
+**Why not pandas/polars:** Unnecessary DataFrame abstraction - we need array operations and time-series storage, not tabular transformations. NumPy + aiosqlite are leaner and match the existing codebase patterns.
+
+**Why not PostgreSQL:** Adds operational complexity (server process, connection pooling, migrations) that SQLite avoids. Data volume is modest, single-instance deployment, no concurrent write contention.
+
+**Why not Optuna:** Heavy dependency tree (SQLAlchemy, Alembic, colorlog, tqdm) for a small parameter space (3-5 parameters). Grid search via `scipy.optimize.brute` handles this trivially.
 
 ### Expected Features
 
-Research identifies clear feature tiers based on arbitrage requirements and competitive differentiation.
+**Must have (table stakes) - without these, "smarter strategy" is just marketing:**
+- **Historical funding rate ingestion**: Fetch from Bybit API (`/v5/market/history-fund-rate`, 200 records/page) with pagination handling
+- **Replay simulation engine**: Feed historical data through existing strategy logic in chronological order, reusing Executor ABC pattern
+- **Fee-accurate P&L simulation**: Use existing FeeCalculator and PnLTracker - backtest must model realistic transaction costs (research shows 17% of apparent opportunities lose money after fees)
+- **Funding rate trend detection**: Compare current rate to moving average, detect rising/falling/stable trends
+- **Rate persistence scoring**: How long has rate stayed elevated - sustained rates are more reliable than spikes
+- **Composite entry signal**: Multi-factor score (rate level + trend direction + persistence) replacing single threshold
+- **Conviction-scaled sizing**: Higher funding rate + better signal = larger position (research shows Sharpe improves from 1.4 to 2.3 vs static sizing)
+- **Strategy parameter sweep**: Grid search over thresholds and sizing parameters with backtest validation
 
-**Must have (table stakes):**
-- Automated position opening/closing (spot + perp simultaneously)
-- Real-time funding rate monitoring across pairs
-- Position size calculation respecting balance and leverage limits
-- Basic risk controls (max position size, max pairs, emergency stop)
-- Paper trading mode for risk-free validation
-- Position dashboard showing pair, size, P&L, funding collected
-- Trade history with timestamps for audit trail
-- Transaction fee accounting (entry/exit fees reduce net profit)
-- Minimum funding threshold filter (only enter profitable opportunities)
-- Bot start/stop controls with clean shutdown
-
-**Should have (competitive differentiators):**
-- Multi-pair ranking system (automatically find best opportunities)
-- Dynamic position management (rebalance to highest-yielding pairs)
-- Liquidity analysis (avoid pairs with insufficient depth)
-- Historical performance analytics (Sharpe ratio, max drawdown by pair)
-- Webhook/Telegram alerts for position events and errors
-- Configurable strategy parameters (thresholds, risk limits, filters)
-- Funding rate heatmap visualization across pairs
-- Slippage protection (reject trades with excessive expected slippage)
+**Should have (differentiators):**
+- **Walk-forward validation**: Rolling window optimization (3-month train, 1-month test) to prevent overfitting to historical regimes
+- **Spot-perp basis spread monitoring**: Basis z-score > 2 is a confirmed entry signal per academic literature
+- **Volume-weighted filtering**: High rates on declining volume pairs are traps - insufficient exit liquidity
+- **Drawdown-responsive sizing**: Reduce position sizes when portfolio is in drawdown (standard risk management)
+- **Backtest visualization**: Equity curve, trade markers, parameter heatmap on dashboard
 
 **Defer (v2+):**
-- Funding rate prediction using ML/statistical models (requires historical data pipeline)
-- Backtesting engine (complex historical data requirements)
-- Multi-exchange support (very high complexity, different APIs)
-- Auto-compounding (nice-to-have enhancement)
-- Tax loss harvesting (jurisdiction-specific complexity)
-
-**Explicit anti-features (do NOT build):**
-- High-frequency trading (not funding arbitrage's strength — 8hr cycles tolerate minute-scale latency)
-- Leveraged spot positions (massively increases risk — keep spot unleveraged)
-- Social/copy trading features (legal/regulatory complexity)
-- Automatic capital injection from external wallets (prevents runaway allocation)
+- **Machine learning prediction**: Academic research shows DAR models provide modest predictability but ML complexity is not justified vs simple statistical signals
+- **Cross-exchange arbitrage**: Different APIs, fee structures, capital transfer delays - massive complexity
+- **Market regime classification**: High complexity, needs more live data to calibrate properly
+- **Correlation-aware exposure**: Requires substantial historical price data infrastructure
 
 ### Architecture Approach
 
-Event-driven architecture with explicit state machine for bot lifecycle management. Components communicate via async events rather than direct calls to handle real-time market data, order fills, and funding updates. The Bot Orchestrator manages strategy execution through well-defined states (INITIALIZING → SCANNING → OPENING → MONITORING → CLOSING → IDLE, with ERROR/RECOVERING paths).
+The v1.0 architecture has three strong patterns: (1) orchestrator-based scan-rank-decide-execute cycle, (2) dependency injection via `_build_components()`, and (3) swappable Executor ABC. v1.1 extends this cleanly by adding a fourth Executor implementation: `BacktestExecutor` fills orders from historical data instead of exchange API. This means the ENTIRE trading pipeline (PositionManager, PnLTracker, FeeCalculator, analytics) runs unchanged in backtests - no separate simulation logic, no drift between backtest and live behavior.
 
 **Major components:**
-1. **Exchange Adapter Layer** — Abstracts Bybit API (rate limiting, websocket management, authentication), ensures single point for exchange-specific logic
-2. **Data Feed Manager** — Ingests market data via websockets, normalizes and distributes to strategy components
-3. **Bot Orchestrator** — Main strategy loop implementing state machine, coordinates all components
-4. **Risk Manager** — Pre-trade validation (position limits, exposure checks, delta neutrality validation)
-5. **Execution Engine** — Order placement via async queue, handles fills tracking and slippage management
-6. **Position Manager** — Tracks open position state, runs reconciliation loop (every 30s) to detect discrepancies with exchange
-7. **P&L Engine** — Calculates realized/unrealized P&L, tracks funding collection, generates performance metrics
-8. **Web Dashboard** — FastAPI backend with React frontend, WebSocket updates for real-time position monitoring
+1. **HistoricalDataStore** (`src/bot/data/store.py`) - aiosqlite-based persistence for funding rates, klines, market snapshots. Schema stores Decimal values as TEXT for precision. WAL mode for concurrent reads.
+2. **SignalAnalyzer** (`src/bot/strategy/signal_analyzer.py`) - Pure computation module that reads historical data and produces SignalResult (trend direction, confidence score, entry/exit recommendations). No side effects, trivially testable.
+3. **DynamicPositionSizer** (`src/bot/strategy/dynamic_sizer.py`) - Wraps existing PositionSizer, computes conviction-based target size, delegates to base sizer for exchange constraint handling (qty_step, min_notional). Preserves all v1.0 validation logic.
+4. **BacktestEngine** (`src/bot/backtest/engine.py`) - Time-stepped replay: for each 8h funding period, set BacktestExecutor clock, feed historical data to mock monitors, run one orchestrator cycle, collect results from PnLTracker.
+5. **BacktestExecutor** (`src/bot/backtest/executor.py`) - Implements Executor ABC, fills orders at historical prices with simulated slippage. The key that makes backtests reuse production code.
 
-**Critical patterns:**
-- Circuit Breaker for exchange API (automatically stops calls when error rate exceeds threshold)
-- Delta Neutrality Validator (continuous validation that spot + perp positions maintain neutrality within 2% drift)
-- Async Queue-Based Execution (prevents race conditions in concurrent order placement)
-- Position Reconciliation Loop (periodic comparison with exchange state to catch missed messages)
-
-**Build order implications:** Phase 1 must establish foundation layer (Config Manager, Persistence, Exchange Adapter) before Phase 2 data layer (Data Feed, Position Manager), which enables Phase 3 logic layer (Risk Manager, Execution Engine, P&L), culminating in Phase 4 orchestration and Phase 5 interface layer.
+**Integration pattern:** All new components are **optional** (`| None = None` in orchestrator). This enables gradual rollout, feature flags (`strategy_mode: simple | intelligent`), and preserves v1.0 regression tests. The orchestrator adds steps 3-4 (ANALYZE signals, SIZE positions) between existing RANK and DECIDE steps.
 
 ### Critical Pitfalls
 
-Research identified 14 pitfalls across criticality levels; top 5 require prevention before real money trading:
+1. **Look-ahead bias in backtesting** - Bybit's historical endpoint returns SETTLED rates, but live trading uses PREDICTED rates (different numbers). Backtesting with settled rates = false confidence. **Mitigation:** Store both predicted and settled rates, enforce `as_of` timestamp for all data access, validate backtest vs recent paper trading results.
 
-1. **Incomplete Delta Hedge During Volatile Moves** — Opening spot position followed by perp hedge creates directional exposure window. A 1-second delay during volatility can cause 1-5% slippage, wiping out weeks of funding profits. Prevention: simultaneous order placement via async calls, strict 1-3s timeout, immediate cancellation if either side fails/times out, monitor fill ratios and close unhedged portions immediately.
+2. **Overfitting to historical regimes** - Funding rate patterns are non-stationary, shift every 3-6 months with market regime. Grid search on 6 months finds noise. **Mitigation:** Walk-forward validation with rolling 3-month train / 1-month test windows, parameter stability checks (reject if optimal params shift >30% between folds), hard bounds on Sharpe >3.0 as overfitting warning.
 
-2. **Funding Rate Sign Confusion** — Misinterpreting funding rate sign (Bybit convention: positive = longs pay shorts) causes opening positions backwards, paying funding instead of collecting. Prevention: document exchange conventions in code, normalize to internal representation, unit tests with both positive/negative scenarios, paper trading validation, assertion checks linking funding direction to position side.
+3. **Breaking the working v1.0 system** - Adding intelligence layer changes orchestrator decision path. A bug could make existing paper/live trading malfunction. **Mitigation:** Extract strategy interface before adding intelligence, feature flags with `simple` as default, regression test suite from v1.0 that must pass unchanged, read-only intelligence (components advise, orchestrator decides).
 
-3. **Ignoring Exchange Fee Impact** — Gross funding rate looks attractive but net return after entry/exit fees is negative. A 0.05%/8hr funding rate requires multiple holding periods to overcome ~0.1% total fees. Prevention: calculate net funding rate including all fees before opening, set minimum net profit threshold (e.g., 0.3%), model minimum holding period, track fee/funding ratio metrics.
+4. **Survivorship bias in historical data** - Bybit API only returns data for currently listed pairs. Delisted pairs (5-15% annually, often the high-rate illiquid ones) are invisible. **Mitigation:** Build historical pair registry (snapshot pairs weekly), document excluded pairs, apply 5-10% adjustment for delisting risk in backtest returns.
 
-4. **Cascade Liquidations During Extreme Volatility** — Delta-neutral position gets liquidated on perp side despite offsetting spot gains, due to high leverage or spiking margin requirements during volatility. Prevention: conservative leverage (2-3x max), maintain 30-50% excess collateral buffer, continuous margin monitoring with alerts at 60%/40%, use isolated margin mode, emergency position reduction protocols.
-
-5. **API Rate Limits Causing Failures** — Excessive API polling triggers rate limits, preventing critical operations like closing positions during emergencies. Prevention: websockets for real-time data (funding rates, prices), REST only for state-changing operations, client-side token bucket rate limiting, exponential backoff with jitter, stay at 50% of exchange limit for safety margin.
+5. **Trend indicators producing false signals** - Funding rates are mean-reverting (8h settlements, by-design convergence), not trending. Standard TA indicators (MACD, RSI) designed for price series produce excessive false signals. **Mitigation:** Use short-window EMAs (3-5 periods = 1-1.7 days) for regime detection, focus on rate-of-change vs absolute trends, always benchmark against v1.0 simple threshold baseline.
 
 ## Implications for Roadmap
 
-Based on research, suggested 5-phase structure prioritizing risk mitigation and early validation:
+Based on research, strict dependency ordering is critical. Each phase must be validated before proceeding to avoid cascading failures.
 
-### Phase 1: Core Trading Engine (Paper Trading)
-**Rationale:** Foundation layer must work correctly before building higher-level features. Delta hedging, funding sign interpretation, and position sizing are critical pitfalls that require early validation. Paper trading mode allows risk-free testing of core logic.
-
-**Delivers:**
-- Exchange API integration (Bybit via pybit/ccxt)
-- Market data ingestion (websockets for funding rates, prices)
-- Simultaneous order execution (spot + perp with timeout protection)
-- Basic position tracking and delta neutrality validation
-- Paper trading mode (simulated execution, virtual balances)
-- Configuration management (pydantic for type-safe config)
-- Structured logging (structlog with JSON output)
-
-**Addresses (from FEATURES.md):**
-- Real-time funding rate monitoring (single pair initially)
-- Position size calculation with Decimal precision
-- Automated position opening/closing in paper mode
-- Basic position dashboard (minimal UI)
-- Bot start/stop controls
-- Trade history logging
-
-**Avoids (from PITFALLS.md):**
-- Critical #1: Incomplete delta hedge (simultaneous orders, timeouts)
-- Critical #2: Funding rate sign confusion (exchange-specific tests)
-- Critical #5: API rate limits (websockets for data, rate limiter implementation)
-- Moderate #8: Position sizing errors (Decimal library, lot size constraints)
-- Minor #11: Time zone issues (all UTC internally)
-- Minor #12: Logging sensitive data (redaction patterns)
-
-**Stack elements:**
-- Python 3.11+, asyncio, pybit, asyncpg, PostgreSQL, structlog, pydantic
-
-### Phase 2: Multi-Pair Real Money Trading
-**Rationale:** After paper trading validates core logic (minimum 1-2 weeks), expand to multi-pair ranking and enable real money mode. Fee analysis and liquidity checks prevent unprofitable trades. Risk controls (position limits, margin monitoring) prevent cascade liquidations.
+### Phase 1: Historical Data Foundation
+**Rationale:** Everything else depends on historical data. Without persistence, neither signal analysis nor backtesting have inputs. Build the data layer first, validate data quality before consuming it.
 
 **Delivers:**
-- Multi-pair ranking system (scan all markets, rank by net yield after fees)
-- Fee impact calculation (entry + exit fees vs expected funding)
-- Minimum profitability thresholds (only enter if net > 0.3%)
-- Liquidity analysis (filter by volume, check order book depth)
-- Real money mode toggle (validated by paper trading success)
-- Comprehensive risk controls (max position size per pair, max total pairs, leverage limits)
-- Margin monitoring with alerts (warn at 60%, critical at 40%)
-- Balance tracking (available vs allocated capital)
-- Funding collection tracking per position
+- HistoricalDataStore (aiosqlite schema, async read/write methods)
+- HistoricalDataFetcher (Bybit API pagination handler, backfill logic)
+- ExchangeClient extensions (`fetch_funding_rate_history`, `fetch_klines`)
+- Data quality validation (gap detection, duplicate checks, interval consistency)
 
-**Addresses:**
-- Multi-pair ranking (differentiator)
-- Risk controls (position limits, stop loss)
-- Real money mode
-- Balance and funding tracking
-- Error handling with retries
+**Addresses:** Historical data ingestion (table stakes), 90-day backfill capability
 
-**Avoids:**
-- Critical #3: Fee impact blindness (net funding calculation)
-- Critical #4: Cascade liquidations (conservative leverage, margin monitoring)
-- Moderate #6: Stale funding data (regular refresh, timestamp validation)
-- Moderate #7: Illiquid pairs (volume filters, depth checks)
+**Avoids:** Pitfall #7 (API rate limits via throttling), Pitfall #10 (data gaps via validation pipeline), Pitfall #4 (survivorship bias via pair registry)
 
-**Stack elements:**
-- pandas for analysis (cold path only), numpy for calculations, APScheduler for periodic tasks
+**Stack:** aiosqlite 0.22.0+, ccxt extensions
 
-### Phase 3: Dynamic Position Management
-**Rationale:** With multi-pair real trading stable, add intelligence to rebalance capital toward best opportunities. Continuous funding rate monitoring enables closing positions when rates drop or go negative.
+**Research flag:** SKIP - Bybit API is well-documented, aiosqlite is mature, integration pattern is straightforward.
+
+### Phase 2: Signal Analysis
+**Rationale:** Pure computation on stored data. Can be validated independently without backtest engine. Provides immediate value to live trading even before backtesting is complete.
 
 **Delivers:**
-- Continuous funding rate monitoring for open positions
-- Exit criteria based on funding rate changes (close if below threshold)
-- Dynamic rebalancing (evaluate if position still worthwhile, shift capital to better pairs)
-- Position reconciliation loop (every 30s, detect exchange state discrepancies)
-- Enhanced error recovery (state transitions, notification on critical errors)
-- Performance analytics (Sharpe ratio, max drawdown by pair, win rate)
+- SignalAnalyzer module with trend detection (EMA crossover)
+- Rate persistence scoring (consecutive periods above threshold)
+- Composite signal calculation (trend + persistence + stability)
+- SignalResult model with confidence scores
 
-**Addresses:**
-- Dynamic position management (differentiator)
-- Performance analytics (differentiator)
+**Addresses:** Trend detection, persistence scoring, composite entry signal (table stakes)
 
-**Avoids:**
-- Moderate #9: Ignoring funding changes mid-position
-- Improves resilience against missed websocket messages via reconciliation
+**Uses:** numpy for array operations, scipy.stats for regression
 
-**Stack elements:**
-- polars for high-performance analytics, circuit breaker pattern for API resilience
+**Avoids:** Pitfall #5 (false signals via mean-reversion-aware indicators, short windows)
 
-### Phase 4: Monitoring & Resilience
-**Rationale:** Production hardening to handle edge cases and operational issues. Exchange downtime, network issues, and system errors need graceful handling.
+**Stack:** numpy 2.4.0+, scipy 1.17.0+
+
+**Research flag:** MODERATE - Standard pattern (EMA crossover) but funding rate domain specifics need empirical validation against v1.0 baseline.
+
+### Phase 3: Orchestrator Integration
+**Rationale:** Wire signal analysis into live trading before backtesting. Validates that the integration doesn't break v1.0, enables A/B testing signal quality in paper mode, provides real-world signal data for backtest calibration.
 
 **Delivers:**
-- Exchange status monitoring (detect maintenance, outages)
-- Graceful degradation (halt new positions if exchange unstable)
-- Circuit breaker for API calls (auto-stop when error rate spikes)
-- Emergency shutdown procedures (documented manual intervention paths)
-- Prometheus metrics export (funding rate deltas, position count, API latency, margin ratio)
-- Grafana dashboards (time-series visualization of bot health)
-- Alert system integration (critical errors, margin warnings, API failures)
+- Orchestrator modifications (add ANALYZE step, enrich OpportunityScore)
+- FundingMonitor auto-persistence (write live data to store)
+- Configuration extensions (SignalSettings, feature flags)
+- Main.py wiring with optional injection
 
-**Addresses:**
-- Notification manager component from architecture
+**Addresses:** Integration of trend signals into decision flow
 
-**Avoids:**
-- Moderate #10: Exchange downtime causing stuck positions
-- Improves error detection and recovery
+**Avoids:** Pitfall #3 (breaking v1.0 via strategy interface extraction, feature flags, regression tests)
 
-**Stack elements:**
-- prometheus-client, Grafana, APScheduler for health checks
+**Architecture:** Extend, don't replace - all new components are optional
 
-### Phase 5: Advanced Dashboard & User Experience
-**Rationale:** With core trading and monitoring stable, enhance user interface for better control and insights.
+**Research flag:** SKIP - Integration pattern follows established v1.0 dependency injection, well-understood.
+
+### Phase 4: Backtest Engine
+**Rationale:** Requires historical data (Phase 1) and signal logic (Phase 2). Validates strategy improvements before deploying dynamic sizing. Parameter optimization is meaningless without backtest results.
 
 **Delivers:**
-- Full-featured React dashboard (Next.js with TanStack Query)
-- Real-time WebSocket updates (position changes, funding collections, alerts)
-- Configurable strategy parameters UI (thresholds, risk limits, pair filters)
-- Funding rate heatmap visualization (rates across all pairs over time)
-- Telegram webhook alerts (position opens/closes, errors, funding collections)
-- Detailed trade history view (filterable, exportable)
-- Backtesting capability (test strategy on historical data)
+- BacktestExecutor implementing Executor ABC
+- BacktestEngine with time-stepped replay
+- v1.0 baseline strategy simulation (SimpleThresholdStrategy)
+- BacktestResult models and analytics
+- Parameter grid search framework
 
-**Addresses:**
-- Configurable parameters (differentiator)
-- Telegram alerts (differentiator)
-- Funding rate heatmap (differentiator)
-- Enhanced dashboard visualizations
+**Addresses:** Replay simulation, fee-accurate P&L, parameter sweep (table stakes)
 
-**Avoids:**
-- Minor #14: Dashboard P&L inaccuracy (reconciliation with exchange, comprehensive costs)
+**Uses:** All existing components (PositionManager, PnLTracker, FeeCalculator) via Executor pattern
 
-**Stack elements:**
-- FastAPI, React, Next.js, TanStack Query, shadcn/ui, Recharts
+**Avoids:** Pitfall #1 (look-ahead bias via strict temporal access), Pitfall #2 (overfitting via walk-forward validation), Pitfall #14 (wrong baseline via v1.0 simulation first)
+
+**Architecture:** BacktestExecutor reuses production components - no separate simulation logic
+
+**Research flag:** MODERATE - Custom backtest engine (not framework-based), need to validate temporal ordering, test against known outcomes.
+
+### Phase 5: Dynamic Position Sizing
+**Rationale:** Build last because sizing changes affect real money and must be backtested (Phase 4) before live deployment. Sizing parameters need optimization from backtest results.
+
+**Delivers:**
+- DynamicPositionSizer wrapping existing PositionSizer
+- Conviction-based scaling (signal confidence -> position size)
+- Risk constraints (portfolio exposure limit, drawdown-responsive sizing)
+- DynamicSizingSettings configuration
+
+**Addresses:** Conviction-scaled sizing, risk-constrained sizing (table stakes)
+
+**Uses:** Signal confidence from Phase 2, backtest validation from Phase 4
+
+**Avoids:** Pitfall #8 (backtest-based sizing via conservative bounds), Pitfall #9 (correlation risk via portfolio-level exposure limits)
+
+**Architecture:** Wraps, doesn't replace - delegates to base PositionSizer for exchange constraints
+
+**Research flag:** SKIP - Position sizing math is well-understood, integration pattern is clear.
+
+### Phase 6: Dashboard Extensions
+**Rationale:** Display layer for features built in previous phases. Not on critical path for strategy intelligence. Can be built after core functionality is validated.
+
+**Delivers:**
+- Backtest results visualization (equity curve, parameter heatmap)
+- Signal indicators on opportunity table (confidence scores)
+- Backtest trigger UI
+
+**Addresses:** Backtest visualization (table stakes)
+
+**Research flag:** SKIP - FastAPI + HTMX pattern established in v1.0.
 
 ### Phase Ordering Rationale
 
-- **Foundation-first approach:** Phase 1 establishes Exchange Adapter, Config Manager, Persistence before anything else — these have no dependencies but everything depends on them
-- **Early risk validation:** Phases 1-2 address all 5 critical pitfalls before real money trading, using paper trading as validation gate
-- **Dependency-driven sequencing:** Data layer (Phase 2) requires foundation, logic layer (Phase 3) requires data layer, orchestration (Phase 4) coordinates all, UI (Phase 5) visualizes everything
-- **Incremental value delivery:** Each phase delivers working functionality (paper trading → real trading → smart rebalancing → production hardening → enhanced UX)
-- **Defer complexity:** ML prediction, backtesting engine, multi-exchange to v2+ (high complexity, not core to proving strategy viability)
+- **Data before analysis:** Can't compute trends without historical data (Phase 1 before 2)
+- **Analysis before optimization:** Can't optimize parameters without backtest validation (Phase 2-4 before 5)
+- **Validate before deploy:** Signal integration (Phase 3) proves non-breaking before adding more complexity
+- **Backtest before dynamic sizing:** Sizing changes are high-risk, must be backtested first (Phase 4 before 5)
+- **Display last:** Dashboard extensions don't block functionality (Phase 6 deferred)
+
+The linear dependency chain prevents premature optimization and ensures each layer is validated before the next is built. Funding rate arbitrage domain specifics (8h settlement cycles, mean-reverting rates, dual-leg positions) make standard frameworks unsuitable - custom implementations are required at every layer.
 
 ### Research Flags
 
 **Phases needing deeper research during planning:**
-- **Phase 1:** Bybit API specifics (current rate limits, websocket specifications, funding rate endpoint details, authentication flows) — use `/gsd:research-phase` to verify against official docs
-- **Phase 2:** Exchange fee structures (current maker/taker fees, spot vs derivatives, any volume discounts) — verify pricing before fee calculations
-- **Phase 3:** Bybit margin calculation methods (how maintenance margin changes during volatility, isolated vs cross margin behavior) — critical for liquidation prevention
+- **Phase 2 (Signal Analysis):** Funding rate trend behavior needs empirical validation. Standard indicators may not work. Plan to spend time on A/B testing signal variations against v1.0 baseline.
+- **Phase 4 (Backtest Engine):** Temporal ordering and look-ahead bias prevention are subtle. Plan validation against known periods where v1.0 paper trading results exist.
 
-**Phases with standard patterns (skip research-phase):**
-- **Phase 4:** Prometheus + Grafana monitoring (well-documented, established patterns)
-- **Phase 5:** React + FastAPI dashboard (standard web stack, extensive examples available)
+**Phases with standard patterns (minimal research):**
+- **Phase 1 (Data Foundation):** aiosqlite integration is well-documented, Bybit API is official and verified
+- **Phase 3 (Orchestrator Integration):** Follows established v1.0 dependency injection pattern
+- **Phase 5 (Dynamic Sizing):** Position sizing math is standard, wrapper pattern is clear
+- **Phase 6 (Dashboard):** FastAPI + HTMX pattern already used in v1.0
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | MEDIUM | Python asyncio, PostgreSQL, FastAPI are established patterns for trading bots; specific library versions (pybit 5.x, ccxt 4.x) need verification against current PyPI/official docs |
-| Features | MEDIUM-LOW | Table stakes features based on arbitrage fundamentals are sound; competitive landscape and differentiators not verified against current 2026 market |
-| Architecture | MEDIUM | Event-driven architecture, state machines, circuit breakers are industry-standard for trading systems; Bybit-specific API behaviors need verification |
-| Pitfalls | LOW-MEDIUM | Core pitfalls (delta hedging, funding sign, fees) are fundamental to arbitrage; specific Bybit behaviors (margin calculations, rate limits) based on training data not current docs |
+| Stack | HIGH | All recommended libraries verified via official docs, version compatibility confirmed for Python 3.12, existing v1.0 stack is proven |
+| Features | MEDIUM | Table stakes features (backtesting, trend analysis, sizing) are industry-standard, but funding rate domain specifics need empirical validation. Academic research confirms trends exist but predictability is "time-varying" |
+| Architecture | HIGH | Executor ABC pattern extension is natural, aiosqlite integration is straightforward, component boundaries are clear. Based on analysis of actual v1.0 codebase. |
+| Pitfalls | MEDIUM | Look-ahead bias and overfitting are well-documented in backtesting literature. Funding rate specifics (predicted vs settled rates, mean-reversion) come from Bybit API docs + academic papers but need implementation-time validation |
 
-**Overall confidence:** MEDIUM
+**Overall confidence:** MEDIUM-HIGH
 
-Research provides solid foundation for roadmap planning based on established trading system patterns and arbitrage strategy fundamentals. However, all Bybit-specific details (API endpoints, rate limits, fee structures, funding conventions, margin calculations) require verification against current official documentation before implementation. Stack technology choices are sound but versions need confirmation.
+The recommended approach is sound and builds on a proven v1.0 foundation. The primary uncertainty is around funding rate trend analysis effectiveness - academic research confirms predictability exists but is "modest" and "time-varying." The mitigation is to always benchmark against v1.0's simple threshold baseline and only deploy improvements that demonstrably outperform on out-of-sample data.
 
 ### Gaps to Address
 
-**During Phase 1 planning:**
-- Verify Bybit API v5 rate limits for funding rate endpoints, order placement, position queries
-- Confirm funding rate sign convention (positive = longs pay shorts?) via official docs and test trades
-- Check pybit vs ccxt current status — which has better Bybit support in 2026?
-- Validate websocket reliability for funding rate updates vs polling frequency requirements
+**During Phase 2 (Signal Analysis):**
+- Optimal EMA window sizes for 8h funding rate data need empirical determination - research suggests 3-9 periods but this must be validated against v1.0 baseline across multiple regimes
+- Composite signal weighting (how much weight on trend vs persistence vs stability) requires parameter sweep and backtest validation
 
-**During Phase 2 planning:**
-- Confirm current Bybit fee structure (maker/taker percentages, any VIP tiers, spot vs perp differences)
-- Verify order book depth API for liquidity analysis
-- Test margin requirement calculations for delta-neutral positions (does exchange offer favorable margin treatment?)
+**During Phase 4 (Backtest Engine):**
+- Predicted vs settled funding rate relationship needs measurement - research confirms they differ but exact magnitude per pair/regime is unknown. May need to fetch both from API during backfill.
+- Realistic slippage modeling for different pair liquidity levels needs calibration - 5bps baseline may be too optimistic for low-volume pairs during high-funding periods
 
-**During Phase 3 planning:**
-- Understand Bybit maintenance window schedules (frequency, duration, which services affected)
-- Test behavior during partial outages (can spot and perp become temporarily unhedged?)
+**During deployment:**
+- Market regime changes every 3-6 months per research - plan quarterly review of strategy parameters against live results, be prepared to revert to v1.0 if v1.1 underperforms for 50+ trades
 
-**General gaps:**
-- No competitor analysis (what features do commercial funding bots offer in 2026?)
-- Regulatory considerations unknown (any automated trading restrictions on Bybit?)
-- Community best practices not researched (what mistakes do first-time builders make?)
-- Historical profitability data unavailable (what funding rates are realistic to expect?)
+**Documentation needed:**
+- Explicit rollback procedure (feature flag to `strategy_mode=simple`)
+- A/B testing framework (run v1.0 and v1.1 side-by-side in paper mode for 2 weeks before live)
 
 ## Sources
 
-### Research Methodology
+### Primary (HIGH confidence)
+- Bybit Official API Documentation: funding rate history endpoint (`/v5/market/history-fund-rate`), kline endpoint (`/v5/market/kline`), rate limits (600 req/5s per IP)
+- NumPy 2.4.2 release notes (Feb 2026, Python 3.12 support verified)
+- SciPy 1.17.0 release notes (Jan 2026, NumPy 1.26.4+ dependency verified)
+- aiosqlite 0.22.1 PyPI page (Dec 2025, async SQLite wrapper)
+- Existing v1.0 codebase analysis: orchestrator.py, executor.py, position/sizing.py, main.py, config.py
 
-**IMPORTANT:** All four research files (STACK.md, FEATURES.md, ARCHITECTURE.md, PITFALLS.md) were generated based on training data knowledge (cutoff January 2025) without access to:
-- Web search for current community wisdom and 2026 best practices
-- Official Bybit API documentation verification
-- Context7 library research capabilities
-- Competitor analysis or market research
+### Secondary (MEDIUM confidence)
+- Academic: "Predictability of Funding Rates" (SSRN) - DAR models, autocorrelation weak beyond 3 lags, mean-reversion dynamics
+- Academic: "Two-Tiered Structure of Funding Rate Markets" (MDPI) - 17% of opportunities lose money after fees
+- Industry: Amberdata guide to funding rate arbitrage - multi-factor signals, OI confirmation
+- Industry: MadeInArk funding rate analysis - regime-aware returns (52% bull vs 8.7% bear)
+- Backtesting: QuantStart event-driven backtesting pattern, QuantInsti walk-forward optimization
 
-This means:
-- **Architecture patterns** are sound (event-driven systems, state machines, circuit breakers are timeless)
-- **Feature categorization** is logical (table stakes vs differentiators based on arbitrage fundamentals)
-- **Technology choices** are reasonable (Python async, PostgreSQL, FastAPI are established patterns)
-- **Specific details** need verification (Bybit API behaviors, library versions, current fee structures)
-
-### Confidence by Source Type
-
-**HIGH confidence (domain fundamentals):**
-- Delta-neutral arbitrage mechanics (spot long + perp short to collect funding)
-- Python asyncio patterns for concurrent operations
-- PostgreSQL for ACID-compliant financial transaction storage
-- Decimal library requirement for monetary calculations
-- Event-driven architecture for trading systems
-
-**MEDIUM confidence (established patterns):**
-- Python 3.11+ performance improvements for async
-- FastAPI + React stack for trading dashboards
-- Prometheus + Grafana for monitoring
-- Common trading bot pitfalls (delta hedging timing, fee impact, liquidations)
-
-**LOW confidence (needs verification):**
-- pybit 5.x vs ccxt 4.x current status
-- Bybit-specific API rate limits and behaviors
-- Current Bybit fee structures
-- Funding rate sign conventions (positive = longs pay shorts?)
-- TimescaleDB version compatibility with Postgres 15+
-- shadcn/ui installation method (rapidly evolving)
-
-### Recommended Validation Sources
-
-Before implementation, verify against:
-- **Bybit Official API Docs** (https://bybit-exchange.github.io/docs/) — rate limits, endpoints, websocket specs, funding conventions
-- **PyPI** (https://pypi.org) — current package versions for pybit, ccxt, FastAPI, pydantic
-- **GitHub Repositories** — search for "funding rate arbitrage bot" to find current implementations and patterns
-- **Crypto Trading Communities** — Reddit r/algotrading, BitcoinTalk for practitioner experiences and pitfalls
-- **Bybit Community/Discord** — current trader experiences with API, known issues, maintenance schedules
+### Tertiary (LOW confidence, needs validation)
+- ccxt GitHub issues (#15990, #17854) - Bybit pagination bugs documented but workarounds may have changed since reports
+- Kelly Criterion position sizing - fractional Kelly (quarter to half) recommended for crypto volatility, but funding rate arbitrage may not fit Kelly assumptions
 
 ---
-*Research completed: 2026-02-11*
-*Ready for roadmap: yes*
-*Phase structure: 5 phases suggested (Core Trading → Multi-Pair Real Money → Dynamic Management → Monitoring → Dashboard)*
-*Critical validation needed: Bybit API specifics, library versions, fee structures*
+*Research completed: 2026-02-12*
+*Ready for roadmap: YES*
