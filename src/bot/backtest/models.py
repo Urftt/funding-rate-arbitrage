@@ -46,6 +46,12 @@ class BacktestConfig:
     persistence_threshold: Decimal = Decimal("0.0003")
     persistence_max_periods: int = 30
 
+    # Dynamic sizing params (Phase 7)
+    sizing_enabled: bool = False
+    sizing_min_allocation_fraction: Decimal = Decimal("0.3")
+    sizing_max_allocation_fraction: Decimal = Decimal("1.0")
+    sizing_max_portfolio_exposure: Decimal = Decimal("5000")
+
     def with_overrides(self, **kwargs: object) -> "BacktestConfig":
         """Return a new BacktestConfig with specified fields overridden.
 
@@ -78,6 +84,24 @@ class BacktestConfig:
             exit_threshold=self.exit_threshold,
         )
 
+    def to_sizing_settings(self) -> "DynamicSizingSettings":
+        """Construct a DynamicSizingSettings from the sizing params.
+
+        Maps backtest config sizing fields to the DynamicSizingSettings
+        used by DynamicSizer.
+
+        Returns:
+            DynamicSizingSettings configured from this backtest config.
+        """
+        from bot.config import DynamicSizingSettings
+
+        return DynamicSizingSettings(
+            enabled=self.sizing_enabled,
+            min_allocation_fraction=self.sizing_min_allocation_fraction,
+            max_allocation_fraction=self.sizing_max_allocation_fraction,
+            max_portfolio_exposure=self.sizing_max_portfolio_exposure,
+        )
+
     def to_dict(self) -> dict:
         """Serialize to dict for JSON output.
 
@@ -103,6 +127,10 @@ class BacktestConfig:
             "trend_ema_span": self.trend_ema_span,
             "persistence_threshold": str(self.persistence_threshold),
             "persistence_max_periods": self.persistence_max_periods,
+            "sizing_enabled": self.sizing_enabled,
+            "sizing_min_allocation_fraction": str(self.sizing_min_allocation_fraction),
+            "sizing_max_allocation_fraction": str(self.sizing_max_allocation_fraction),
+            "sizing_max_portfolio_exposure": str(self.sizing_max_portfolio_exposure),
         }
 
 

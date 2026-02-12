@@ -35,6 +35,7 @@ from bot.pnl.fee_calculator import FeeCalculator
 from bot.pnl.tracker import PnLTracker
 from bot.position.delta_validator import DeltaValidator
 from bot.position.manager import PositionManager
+from bot.position.dynamic_sizer import DynamicSizer
 from bot.position.sizing import PositionSizer
 from bot.signals.engine import SignalEngine
 
@@ -130,6 +131,18 @@ class BacktestEngine:
                 data_store=self._data_wrapper,
                 ticker_service=self._ticker_service,
             )
+
+        # Dynamic sizer for composite mode with sizing enabled (Phase 7)
+        self._dynamic_sizer: DynamicSizer | None = None
+        if config.strategy_mode == "composite" and config.sizing_enabled:
+            self._dynamic_sizer = DynamicSizer(
+                position_sizer=self._position_sizer,
+                settings=config.to_sizing_settings(),
+                max_position_size_usd=config.initial_capital,
+            )
+
+        # Last signal score from composite decision (used by dynamic sizer)
+        self._last_signal_score: Decimal | None = None
 
         # Generous instrument info for backtest (no exchange constraint validation)
         self._spot_instrument = InstrumentInfo(
@@ -321,29 +334,54 @@ class BacktestEngine:
 
             # j. Open position (if decided)
             if should_open and not has_open_position:
-                try:
-                    position = await self._position_manager.open_position(
-                        spot_symbol=self._spot_symbol,
-                        perp_symbol=self._config.symbol,
-                        available_balance=self._config.initial_capital,
-                        spot_instrument=self._spot_instrument,
-                        perp_instrument=self._perp_instrument,
+                # Compute available balance (default: initial capital)
+                available_balance = self._config.initial_capital
+
+                # Dynamic sizing: adjust budget based on signal score
+                if (
+                    self._dynamic_sizer is not None
+                    and self._last_signal_score is not None
+                ):
+                    current_exposure = self._compute_current_exposure()
+                    budget = self._dynamic_sizer.compute_signal_budget(
+                        self._last_signal_score, current_exposure
                     )
-                    self._pnl_tracker.record_open(
-                        position, position.entry_fee_total
-                    )
-                    total_trades += 1
-                    has_open_position = True
-                    logger.debug(
-                        "backtest_position_opened",
-                        position_id=position.id,
-                        timestamp_ms=fr.timestamp_ms,
-                    )
-                except Exception as e:
-                    logger.debug(
-                        "backtest_open_error",
-                        error=str(e),
-                    )
+                    if budget is None:
+                        logger.debug(
+                            "backtest_portfolio_cap_reached",
+                            timestamp_ms=fr.timestamp_ms,
+                            current_exposure=str(current_exposure),
+                        )
+                        should_open = False
+                    else:
+                        available_balance = min(
+                            self._config.initial_capital, budget
+                        )
+
+                if should_open:
+                    try:
+                        position = await self._position_manager.open_position(
+                            spot_symbol=self._spot_symbol,
+                            perp_symbol=self._config.symbol,
+                            available_balance=available_balance,
+                            spot_instrument=self._spot_instrument,
+                            perp_instrument=self._perp_instrument,
+                        )
+                        self._pnl_tracker.record_open(
+                            position, position.entry_fee_total
+                        )
+                        total_trades += 1
+                        has_open_position = True
+                        logger.debug(
+                            "backtest_position_opened",
+                            position_id=position.id,
+                            timestamp_ms=fr.timestamp_ms,
+                        )
+                    except Exception as e:
+                        logger.debug(
+                            "backtest_open_error",
+                            error=str(e),
+                        )
 
             # k. Record equity point
             portfolio = self._pnl_tracker.get_portfolio_summary()
@@ -399,6 +437,17 @@ class BacktestEngine:
             metrics=metrics,
         )
 
+    def _compute_current_exposure(self) -> Decimal:
+        """Compute total portfolio exposure as sum of open position notional values.
+
+        Returns:
+            Sum of (quantity * perp_entry_price) for all open positions.
+        """
+        total = Decimal("0")
+        for pos in self._position_manager.get_open_positions():
+            total += pos.quantity * pos.perp_entry_price
+        return total
+
     def _simple_decision(
         self,
         funding_rate: Decimal,
@@ -432,6 +481,8 @@ class BacktestEngine:
     ) -> tuple[bool, bool]:
         """Make entry/exit decision using composite signal strategy.
 
+        Also stores the last signal score for use by dynamic sizer.
+
         Args:
             funding_snapshot: Current funding rate data snapshot.
             has_open_position: Whether a position is currently open.
@@ -441,6 +492,7 @@ class BacktestEngine:
         """
         should_open = False
         should_close = False
+        self._last_signal_score = None  # Reset each decision
 
         if self._signal_engine is None:
             # Fallback to simple if signal engine not available
@@ -461,6 +513,7 @@ class BacktestEngine:
                 else:
                     if signal.passes_entry:
                         should_open = True
+                        self._last_signal_score = signal.score
             elif has_open_position:
                 # No score available (e.g., rate <= 0), close position
                 should_close = True
