@@ -1,0 +1,136 @@
+<div id="backtest-form-panel">
+  <div class="bg-dash-card rounded-lg p-4 border border-dash-border">
+    <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">Backtest Configuration</h3>
+
+    <form id="backtest-form" onsubmit="return false;">
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+
+        <!-- Symbol -->
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Symbol</label>
+          {% if tracked_pairs %}
+          <select name="symbol" id="bt-symbol"
+                  class="w-full bg-dash-bg border border-dash-border rounded px-3 py-1.5 text-sm text-gray-200 focus:border-green-500 focus:outline-none">
+            {% for pair in tracked_pairs %}
+            <option value="{{ pair.symbol }}">{{ pair.symbol }}</option>
+            {% endfor %}
+          </select>
+          {% else %}
+          <input type="text" name="symbol" id="bt-symbol" placeholder="BTC/USDT:USDT"
+                 class="w-full bg-dash-bg border border-dash-border rounded px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 focus:border-green-500 focus:outline-none">
+          {% endif %}
+        </div>
+
+        <!-- Start Date -->
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Start Date</label>
+          <input type="date" name="start_date" id="bt-start-date"
+                 class="w-full bg-dash-bg border border-dash-border rounded px-3 py-1.5 text-sm text-gray-200 focus:border-green-500 focus:outline-none">
+        </div>
+
+        <!-- End Date -->
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">End Date</label>
+          <input type="date" name="end_date" id="bt-end-date"
+                 class="w-full bg-dash-bg border border-dash-border rounded px-3 py-1.5 text-sm text-gray-200 focus:border-green-500 focus:outline-none">
+        </div>
+
+        <!-- Strategy Mode -->
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Strategy Mode</label>
+          <select name="strategy_mode" id="bt-strategy"
+                  class="w-full bg-dash-bg border border-dash-border rounded px-3 py-1.5 text-sm text-gray-200 focus:border-green-500 focus:outline-none">
+            <option value="simple">Simple (v1.0)</option>
+            <option value="composite">Composite (v1.1)</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Run Mode -->
+      <div class="mt-4">
+        <label class="block text-xs text-gray-400 mb-2">Run Mode</label>
+        <div class="flex items-center gap-6">
+          <label class="flex items-center gap-2 text-sm text-gray-200 cursor-pointer">
+            <input type="radio" name="run_mode" value="single" checked
+                   class="text-green-500 focus:ring-green-500 bg-dash-bg border-dash-border">
+            Single Backtest
+          </label>
+          <label class="flex items-center gap-2 text-sm text-gray-200 cursor-pointer">
+            <input type="radio" name="run_mode" value="compare"
+                   class="text-green-500 focus:ring-green-500 bg-dash-bg border-dash-border">
+            Compare v1.0 vs v1.1
+          </label>
+          <label class="flex items-center gap-2 text-sm text-gray-200 cursor-pointer">
+            <input type="radio" name="run_mode" value="sweep"
+                   class="text-green-500 focus:ring-green-500 bg-dash-bg border-dash-border">
+            Parameter Sweep
+          </label>
+        </div>
+      </div>
+
+      <!-- Advanced Parameters (collapsible) -->
+      <details class="mt-4">
+        <summary class="text-xs text-gray-400 cursor-pointer hover:text-gray-200">Advanced Parameters</summary>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-3">
+
+          <div>
+            <label class="block text-xs text-gray-400 mb-1">Min Funding Rate</label>
+            <input type="number" name="min_funding_rate" id="bt-min-rate" step="0.0001" placeholder="0.0003"
+                   class="w-full bg-dash-bg border border-dash-border rounded px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 focus:border-green-500 focus:outline-none">
+          </div>
+
+          <div>
+            <label class="block text-xs text-gray-400 mb-1">Entry Threshold</label>
+            <input type="number" name="entry_threshold" id="bt-entry-threshold" step="0.01" placeholder="0.5"
+                   class="w-full bg-dash-bg border border-dash-border rounded px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 focus:border-green-500 focus:outline-none">
+          </div>
+
+          <div>
+            <label class="block text-xs text-gray-400 mb-1">Exit Threshold</label>
+            <input type="number" name="exit_threshold" id="bt-exit-threshold" step="0.01" placeholder="0.3"
+                   class="w-full bg-dash-bg border border-dash-border rounded px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 focus:border-green-500 focus:outline-none">
+          </div>
+
+          <div>
+            <label class="block text-xs text-gray-400 mb-1">Exit Funding Rate</label>
+            <input type="number" name="exit_funding_rate" id="bt-exit-rate" step="0.0001" placeholder="0.0001"
+                   class="w-full bg-dash-bg border border-dash-border rounded px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 focus:border-green-500 focus:outline-none">
+          </div>
+
+          <div>
+            <label class="block text-xs text-gray-400 mb-1">Weight: Rate Level</label>
+            <input type="number" name="weight_rate_level" step="0.01" placeholder="0.35"
+                   class="w-full bg-dash-bg border border-dash-border rounded px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 focus:border-green-500 focus:outline-none">
+          </div>
+
+          <div>
+            <label class="block text-xs text-gray-400 mb-1">Weight: Trend</label>
+            <input type="number" name="weight_trend" step="0.01" placeholder="0.25"
+                   class="w-full bg-dash-bg border border-dash-border rounded px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 focus:border-green-500 focus:outline-none">
+          </div>
+
+          <div>
+            <label class="block text-xs text-gray-400 mb-1">Weight: Persistence</label>
+            <input type="number" name="weight_persistence" step="0.01" placeholder="0.25"
+                   class="w-full bg-dash-bg border border-dash-border rounded px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 focus:border-green-500 focus:outline-none">
+          </div>
+
+          <div>
+            <label class="block text-xs text-gray-400 mb-1">Weight: Basis</label>
+            <input type="number" name="weight_basis" step="0.01" placeholder="0.15"
+                   class="w-full bg-dash-bg border border-dash-border rounded px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 focus:border-green-500 focus:outline-none">
+          </div>
+
+        </div>
+      </details>
+
+      <!-- Submit -->
+      <div class="mt-4">
+        <button type="button" id="btn-run-backtest"
+                class="px-6 py-2 bg-green-700 hover:bg-green-600 text-white text-sm rounded font-medium transition-colors">
+          Run Backtest
+        </button>
+      </div>
+    </form>
+  </div>
+</div>

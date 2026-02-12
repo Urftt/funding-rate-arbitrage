@@ -1,0 +1,160 @@
+<div id="equity-curve-section" class="bg-dash-card rounded-lg border border-dash-border p-4">
+    <h3 class="text-white font-semibold mb-2">Equity Curve</h3>
+    <canvas id="equity-chart" height="300"></canvas>
+</div>
+
+<script>
+/**
+ * Render an equity curve chart using Chart.js.
+ *
+ * @param {Array} equityData - Array of {timestamp_ms, equity} objects.
+ * @param {string} label - Dataset label (e.g., "Simple" or "Composite").
+ * @param {string} color - Line color hex string.
+ */
+function renderEquityCurve(equityData, label, color) {
+    const ctx = document.getElementById('equity-chart').getContext('2d');
+
+    // Destroy previous chart if it exists
+    if (window._equityChart) {
+        window._equityChart.destroy();
+    }
+
+    const labels = equityData.map(p => {
+        const d = new Date(p.timestamp_ms);
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    });
+    const values = equityData.map(p => parseFloat(p.equity));
+
+    window._equityChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: label || 'Equity',
+                data: values,
+                borderColor: color || '#22c55e',
+                backgroundColor: (color || '#22c55e') + '1a',
+                borderWidth: 2,
+                fill: true,
+                tension: 0.3,
+                pointRadius: 0,
+                pointHoverRadius: 4,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    labels: { color: '#9ca3af' }
+                },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false,
+                    callbacks: {
+                        label: function(context) {
+                            return context.dataset.label + ': $' + context.parsed.y.toFixed(2);
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    ticks: { color: '#6b7280', maxTicksLimit: 12 },
+                    grid: { color: '#334155' }
+                },
+                y: {
+                    ticks: {
+                        color: '#6b7280',
+                        callback: function(v) { return '$' + v.toFixed(0); }
+                    },
+                    grid: { color: '#334155' }
+                }
+            }
+        }
+    });
+}
+
+/**
+ * Render a comparison equity curve with two datasets on the same chart.
+ *
+ * @param {Array} simpleData - Array of {timestamp_ms, equity} for simple strategy.
+ * @param {Array} compositeData - Array of {timestamp_ms, equity} for composite strategy.
+ */
+function renderComparisonEquityCurve(simpleData, compositeData) {
+    const ctx = document.getElementById('equity-chart').getContext('2d');
+
+    if (window._equityChart) {
+        window._equityChart.destroy();
+    }
+
+    // Use the longer dataset for labels
+    const longerData = simpleData.length >= compositeData.length ? simpleData : compositeData;
+    const labels = longerData.map(p => {
+        const d = new Date(p.timestamp_ms);
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    });
+
+    window._equityChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'Simple (v1.0)',
+                    data: simpleData.map(p => parseFloat(p.equity)),
+                    borderColor: '#3b82f6',
+                    backgroundColor: '#3b82f61a',
+                    borderWidth: 2,
+                    fill: false,
+                    tension: 0.3,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                },
+                {
+                    label: 'Composite (v1.1)',
+                    data: compositeData.map(p => parseFloat(p.equity)),
+                    borderColor: '#22c55e',
+                    backgroundColor: '#22c55e1a',
+                    borderWidth: 2,
+                    fill: false,
+                    tension: 0.3,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    labels: { color: '#9ca3af' }
+                },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false,
+                    callbacks: {
+                        label: function(context) {
+                            return context.dataset.label + ': $' + context.parsed.y.toFixed(2);
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    ticks: { color: '#6b7280', maxTicksLimit: 12 },
+                    grid: { color: '#334155' }
+                },
+                y: {
+                    ticks: {
+                        color: '#6b7280',
+                        callback: function(v) { return '$' + v.toFixed(0); }
+                    },
+                    grid: { color: '#334155' }
+                }
+            }
+        }
+    });
+}
+</script>

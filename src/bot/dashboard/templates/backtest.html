@@ -1,0 +1,405 @@
+{% extends "base.html" %}
+
+{% block title %}Backtest | Funding Rate Arbitrage{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <h2 class="text-2xl font-bold text-white">Backtest Engine</h2>
+
+    <!-- Configuration Form -->
+    {% include "partials/backtest_form.html" %}
+
+    <!-- Error Display -->
+    <div id="backtest-error" class="hidden bg-red-900/50 border border-red-700 rounded-lg p-4">
+        <p class="text-red-300 text-sm" id="error-message"></p>
+    </div>
+
+    <!-- Results Area (hidden until backtest completes) -->
+    <div id="backtest-results" class="hidden space-y-6">
+        <!-- Summary Metrics Cards -->
+        <div id="metrics-cards" class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <!-- Filled by JS after backtest completes -->
+        </div>
+
+        <!-- Equity Curve Chart -->
+        {% include "partials/equity_curve.html" %}
+
+        <!-- Comparison Table (shown for compare mode) -->
+        <div id="comparison-section" class="hidden">
+            <div class="bg-dash-card rounded-lg border border-dash-border p-4">
+                <h3 class="text-white font-semibold mb-3">Strategy Comparison: Simple vs Composite</h3>
+                <table id="comparison-table" class="w-full text-sm">
+                    <thead>
+                        <tr class="text-gray-400 border-b border-dash-border">
+                            <th class="text-left py-2">Metric</th>
+                            <th class="text-right py-2">Simple (v1.0)</th>
+                            <th class="text-right py-2">Composite (v1.1)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="comparison-body"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Parameter Heatmap (shown for sweep mode) -->
+        {% include "partials/param_heatmap.html" %}
+    </div>
+
+    <!-- Loading Indicator -->
+    <div id="backtest-loading" class="hidden text-center py-12">
+        <div class="animate-spin inline-block w-8 h-8 border-2 border-gray-500 border-t-green-500 rounded-full"></div>
+        <p class="text-gray-400 mt-3" id="loading-message">Running backtest...</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    'use strict';
+
+    const btn = document.getElementById('btn-run-backtest');
+    const form = document.getElementById('backtest-form');
+    const loadingEl = document.getElementById('backtest-loading');
+    const loadingMsg = document.getElementById('loading-message');
+    const resultsEl = document.getElementById('backtest-results');
+    const errorEl = document.getElementById('backtest-error');
+    const errorMsg = document.getElementById('error-message');
+    const metricsCards = document.getElementById('metrics-cards');
+    const comparisonSection = document.getElementById('comparison-section');
+    const comparisonBody = document.getElementById('comparison-body');
+    const heatmapSection = document.getElementById('heatmap-section');
+    const equitySection = document.getElementById('equity-curve-section');
+
+    let pollInterval = null;
+
+    /**
+     * Collect form values into a JSON-serializable object.
+     * @returns {Object} Form data with symbol, dates, strategy, run mode, and overrides.
+     */
+    function getFormData() {
+        const data = {
+            symbol: document.getElementById('bt-symbol').value,
+            start_date: document.getElementById('bt-start-date').value,
+            end_date: document.getElementById('bt-end-date').value,
+            strategy_mode: document.getElementById('bt-strategy').value,
+        };
+
+        // Get run mode
+        const runMode = form.querySelector('input[name="run_mode"]:checked');
+        data.run_mode = runMode ? runMode.value : 'single';
+
+        // Collect optional numeric overrides (only if user entered a value)
+        const optionalFields = [
+            'min_funding_rate', 'entry_threshold', 'exit_threshold',
+            'exit_funding_rate', 'weight_rate_level', 'weight_trend',
+            'weight_persistence', 'weight_basis'
+        ];
+        optionalFields.forEach(field => {
+            const input = form.querySelector('[name="' + field + '"]');
+            if (input && input.value !== '') {
+                data[field] = input.value;
+            }
+        });
+
+        return data;
+    }
+
+    /**
+     * Validate form inputs before submission.
+     * @param {Object} data - Form data object.
+     * @returns {string|null} Error message or null if valid.
+     */
+    function validateForm(data) {
+        if (!data.symbol) return 'Please enter a symbol.';
+        if (!data.start_date) return 'Please select a start date.';
+        if (!data.end_date) return 'Please select an end date.';
+        if (data.start_date >= data.end_date) return 'End date must be after start date.';
+        return null;
+    }
+
+    /**
+     * Show an error message to the user.
+     * @param {string} msg - Error text to display.
+     */
+    function showError(msg) {
+        errorMsg.textContent = msg;
+        errorEl.classList.remove('hidden');
+        loadingEl.classList.add('hidden');
+    }
+
+    /** Hide all result sections and reset state. */
+    function resetResults() {
+        resultsEl.classList.add('hidden');
+        errorEl.classList.add('hidden');
+        comparisonSection.classList.add('hidden');
+        heatmapSection.classList.add('hidden');
+        metricsCards.innerHTML = '';
+        comparisonBody.innerHTML = '';
+    }
+
+    /**
+     * Determine the API endpoint URL based on run mode.
+     * @param {string} runMode - "single", "compare", or "sweep".
+     * @returns {string} API endpoint path.
+     */
+    function getEndpoint(runMode) {
+        if (runMode === 'compare') return '/api/backtest/compare';
+        if (runMode === 'sweep') return '/api/backtest/sweep';
+        return '/api/backtest/run';
+    }
+
+    /**
+     * Create a metric card element for the results display.
+     * @param {string} label - Metric name.
+     * @param {string} value - Formatted value string.
+     * @param {string} colorClass - Tailwind text color class.
+     * @returns {string} HTML string for the card.
+     */
+    function metricCard(label, value, colorClass) {
+        return '<div class="bg-dash-card rounded-lg border border-dash-border p-3">' +
+               '<p class="text-xs text-gray-400 mb-1">' + label + '</p>' +
+               '<p class="text-lg font-semibold ' + (colorClass || 'text-white') + '">' + value + '</p>' +
+               '</div>';
+    }
+
+    /**
+     * Format a numeric string as a dollar value.
+     * @param {string} val - Numeric string.
+     * @returns {string} Formatted dollar string.
+     */
+    function fmtDollar(val) {
+        const n = parseFloat(val);
+        const sign = n >= 0 ? '+' : '';
+        return sign + '$' + n.toFixed(2);
+    }
+
+    /**
+     * Format a numeric string as a percentage.
+     * @param {string|null} val - Numeric string or null.
+     * @returns {string} Formatted percentage or "N/A".
+     */
+    function fmtPercent(val) {
+        if (val === null || val === undefined) return 'N/A';
+        return (parseFloat(val) * 100).toFixed(1) + '%';
+    }
+
+    /**
+     * Format a numeric string to 2 decimal places.
+     * @param {string|null} val - Numeric string or null.
+     * @returns {string} Formatted number or "N/A".
+     */
+    function fmtNum(val) {
+        if (val === null || val === undefined) return 'N/A';
+        return parseFloat(val).toFixed(2);
+    }
+
+    /**
+     * Display metrics for a single backtest result.
+     * @param {Object} metrics - Metrics object from BacktestResult.
+     */
+    function displaySingleMetrics(metrics) {
+        const pnl = parseFloat(metrics.net_pnl);
+        const pnlColor = pnl >= 0 ? 'text-green-400' : 'text-red-400';
+
+        metricsCards.innerHTML =
+            metricCard('Net P&L', fmtDollar(metrics.net_pnl), pnlColor) +
+            metricCard('Sharpe Ratio', fmtNum(metrics.sharpe_ratio), 'text-white') +
+            metricCard('Max Drawdown', metrics.max_drawdown !== null ? fmtDollar(metrics.max_drawdown) : 'N/A', 'text-yellow-400') +
+            metricCard('Win Rate', fmtPercent(metrics.win_rate), 'text-white') +
+            metricCard('Total Trades', metrics.total_trades, 'text-white') +
+            metricCard('Total Funding', fmtDollar(metrics.total_funding), 'text-blue-400') +
+            metricCard('Total Fees', fmtDollar(metrics.total_fees), 'text-orange-400') +
+            metricCard('Duration', metrics.duration_days + ' days', 'text-white');
+    }
+
+    /**
+     * Display results for a single backtest.
+     * @param {Object} result - BacktestResult.to_dict() output.
+     */
+    function displaySingleResult(result) {
+        displaySingleMetrics(result.metrics);
+
+        // Render equity curve
+        if (result.equity_curve && result.equity_curve.length > 0) {
+            equitySection.classList.remove('hidden');
+            renderEquityCurve(result.equity_curve, result.config.strategy_mode + ' strategy', '#22c55e');
+        } else {
+            equitySection.classList.add('hidden');
+        }
+
+        comparisonSection.classList.add('hidden');
+        heatmapSection.classList.add('hidden');
+        resultsEl.classList.remove('hidden');
+    }
+
+    /**
+     * Display results for a comparison (simple vs composite).
+     * @param {Object} result - {simple: BacktestResult, composite: BacktestResult}.
+     */
+    function displayComparisonResult(result) {
+        const simple = result.simple;
+        const composite = result.composite;
+
+        // Show composite metrics in cards (primary focus)
+        displaySingleMetrics(composite.metrics);
+
+        // Render comparison equity curve
+        if (simple.equity_curve.length > 0 || composite.equity_curve.length > 0) {
+            equitySection.classList.remove('hidden');
+            renderComparisonEquityCurve(simple.equity_curve, composite.equity_curve);
+        }
+
+        // Build comparison table
+        const rows = [
+            ['Net P&L', fmtDollar(simple.metrics.net_pnl), fmtDollar(composite.metrics.net_pnl)],
+            ['Sharpe Ratio', fmtNum(simple.metrics.sharpe_ratio), fmtNum(composite.metrics.sharpe_ratio)],
+            ['Max Drawdown', simple.metrics.max_drawdown !== null ? fmtDollar(simple.metrics.max_drawdown) : 'N/A', composite.metrics.max_drawdown !== null ? fmtDollar(composite.metrics.max_drawdown) : 'N/A'],
+            ['Win Rate', fmtPercent(simple.metrics.win_rate), fmtPercent(composite.metrics.win_rate)],
+            ['Total Trades', simple.metrics.total_trades, composite.metrics.total_trades],
+            ['Total Funding', fmtDollar(simple.metrics.total_funding), fmtDollar(composite.metrics.total_funding)],
+            ['Total Fees', fmtDollar(simple.metrics.total_fees), fmtDollar(composite.metrics.total_fees)],
+            ['Duration', simple.metrics.duration_days + ' days', composite.metrics.duration_days + ' days'],
+        ];
+
+        comparisonBody.innerHTML = rows.map(function(row) {
+            return '<tr class="border-b border-dash-border">' +
+                   '<td class="py-2 text-gray-300">' + row[0] + '</td>' +
+                   '<td class="text-right py-2 text-gray-200 font-mono text-sm">' + row[1] + '</td>' +
+                   '<td class="text-right py-2 text-gray-200 font-mono text-sm">' + row[2] + '</td>' +
+                   '</tr>';
+        }).join('');
+
+        comparisonSection.classList.remove('hidden');
+        heatmapSection.classList.add('hidden');
+        resultsEl.classList.remove('hidden');
+    }
+
+    /**
+     * Display results for a parameter sweep.
+     * @param {Object} result - SweepResult.to_dict() output.
+     */
+    function displaySweepResult(result) {
+        // Show best result metrics in cards
+        if (result.results && result.results.length > 0) {
+            // Sort by P&L and show best
+            const sorted = [...result.results].sort(function(a, b) {
+                return parseFloat(b.result.metrics.net_pnl) - parseFloat(a.result.metrics.net_pnl);
+            });
+            displaySingleMetrics(sorted[0].result.metrics);
+
+            // Render best equity curve if available
+            const bestEquity = sorted[0].result.equity_curve;
+            if (bestEquity && bestEquity.length > 0) {
+                equitySection.classList.remove('hidden');
+                renderEquityCurve(bestEquity, 'Best params', '#22c55e');
+            } else {
+                equitySection.classList.add('hidden');
+            }
+        }
+
+        // Render heatmap
+        renderHeatmap(result);
+        heatmapSection.classList.remove('hidden');
+
+        comparisonSection.classList.add('hidden');
+        resultsEl.classList.remove('hidden');
+    }
+
+    /**
+     * Poll the status endpoint for a running backtest task.
+     * @param {string} taskId - Task identifier.
+     * @param {string} taskType - "backtest", "compare", or "sweep".
+     */
+    function pollStatus(taskId, taskType) {
+        if (pollInterval) clearInterval(pollInterval);
+
+        pollInterval = setInterval(function() {
+            fetch('/api/backtest/status/' + taskId)
+                .then(function(resp) { return resp.json(); })
+                .then(function(data) {
+                    if (data.status === 'running') return;
+
+                    clearInterval(pollInterval);
+                    pollInterval = null;
+                    loadingEl.classList.add('hidden');
+                    btn.disabled = false;
+
+                    if (data.status === 'error') {
+                        showError(data.result && data.result.error ? data.result.error : 'Backtest failed with an unknown error.');
+                        return;
+                    }
+
+                    // Complete
+                    if (taskType === 'compare') {
+                        displayComparisonResult(data.result);
+                    } else if (taskType === 'sweep') {
+                        displaySweepResult(data.result);
+                    } else {
+                        displaySingleResult(data.result);
+                    }
+                })
+                .catch(function(err) {
+                    clearInterval(pollInterval);
+                    pollInterval = null;
+                    loadingEl.classList.add('hidden');
+                    btn.disabled = false;
+                    showError('Failed to check backtest status: ' + err.message);
+                });
+        }, 2000);
+    }
+
+    /** Handle the Run Backtest button click. */
+    btn.addEventListener('click', function() {
+        resetResults();
+
+        const data = getFormData();
+        const validationError = validateForm(data);
+        if (validationError) {
+            showError(validationError);
+            return;
+        }
+
+        const runMode = data.run_mode;
+        delete data.run_mode;
+        const endpoint = getEndpoint(runMode);
+        const taskType = runMode === 'compare' ? 'compare' : (runMode === 'sweep' ? 'sweep' : 'backtest');
+
+        // Show loading
+        btn.disabled = true;
+        loadingEl.classList.remove('hidden');
+        if (runMode === 'sweep') {
+            loadingMsg.textContent = 'Running parameter sweep... this may take a while.';
+        } else if (runMode === 'compare') {
+            loadingMsg.textContent = 'Running strategy comparison...';
+        } else {
+            loadingMsg.textContent = 'Running backtest...';
+        }
+
+        fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+        })
+        .then(function(resp) { return resp.json(); })
+        .then(function(result) {
+            if (result.error) {
+                showError(result.error);
+                btn.disabled = false;
+                return;
+            }
+            pollStatus(result.task_id, taskType);
+        })
+        .catch(function(err) {
+            showError('Failed to start backtest: ' + err.message);
+            btn.disabled = false;
+            loadingEl.classList.add('hidden');
+        });
+    });
+})();
+</script>
+{% endblock %}

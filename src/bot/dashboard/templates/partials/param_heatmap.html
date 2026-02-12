@@ -1,0 +1,146 @@
+<div id="heatmap-section" class="hidden bg-dash-card rounded-lg border border-dash-border p-4">
+    <h3 class="text-white font-semibold mb-2">Parameter Heatmap: Net P&L</h3>
+    <div id="heatmap-container" class="overflow-x-auto">
+        <!-- Populated by JavaScript -->
+    </div>
+</div>
+
+<script>
+/**
+ * Render a parameter sweep heatmap as a colored HTML table.
+ *
+ * For 2 parameters: rows = first param values, columns = second param values,
+ * cells = net P&L with color gradient from red (worst) to green (best).
+ *
+ * For >2 parameters: renders a flat table with one row per combination.
+ *
+ * @param {Object} sweepData - SweepResult.to_dict() output with param_grid and results.
+ */
+function renderHeatmap(sweepData) {
+    const container = document.getElementById('heatmap-container');
+    const params = Object.keys(sweepData.param_grid);
+    const results = sweepData.results;
+
+    if (results.length === 0) {
+        container.innerHTML = '<p class="text-gray-400 text-sm">No sweep results available.</p>';
+        return;
+    }
+
+    // Extract all P&L values for color scaling
+    const pnls = results.map(r => parseFloat(r.result.metrics.net_pnl));
+    const minPnl = Math.min(...pnls);
+    const maxPnl = Math.max(...pnls);
+    const pnlRange = maxPnl - minPnl || 1;
+
+    /**
+     * Get background color for a P&L value on a red-to-green gradient.
+     * @param {number} pnl - Net P&L value.
+     * @returns {string} CSS rgba color string.
+     */
+    function getColor(pnl) {
+        const ratio = (pnl - minPnl) / pnlRange;
+        if (ratio < 0.5) {
+            // Red to neutral
+            const r = 220;
+            const g = Math.round(ratio * 2 * 160);
+            return 'rgba(' + r + ',' + g + ',60,0.3)';
+        } else {
+            // Neutral to green
+            const r = Math.round((1 - ratio) * 2 * 220);
+            const g = 160;
+            return 'rgba(' + r + ',' + g + ',60,0.3)';
+        }
+    }
+
+    if (params.length === 2) {
+        // 2D heatmap: rows = param[0], cols = param[1]
+        const rowParam = params[0];
+        const colParam = params[1];
+        const rowValues = sweepData.param_grid[rowParam];
+        const colValues = sweepData.param_grid[colParam];
+
+        // Build lookup: "rowVal|colVal" -> result
+        const lookup = {};
+        results.forEach(r => {
+            const key = r.params[rowParam] + '|' + r.params[colParam];
+            lookup[key] = r;
+        });
+
+        let html = '<table class="w-full text-sm border-collapse">';
+        html += '<thead><tr>';
+        html += '<th class="text-left py-2 px-2 text-gray-400 border-b border-dash-border">' + rowParam + ' \\ ' + colParam + '</th>';
+        colValues.forEach(cv => {
+            html += '<th class="text-right py-2 px-2 text-gray-400 border-b border-dash-border">' + cv + '</th>';
+        });
+        html += '</tr></thead><tbody>';
+
+        rowValues.forEach(rv => {
+            html += '<tr>';
+            html += '<td class="py-2 px-2 text-gray-300 border-b border-dash-border font-mono text-xs">' + rv + '</td>';
+            colValues.forEach(cv => {
+                const key = rv + '|' + cv;
+                const entry = lookup[key];
+                if (entry) {
+                    const pnl = parseFloat(entry.result.metrics.net_pnl);
+                    const color = getColor(pnl);
+                    const sign = pnl >= 0 ? '+' : '';
+                    html += '<td class="text-right py-2 px-2 border-b border-dash-border font-mono text-xs" style="background:' + color + '">';
+                    html += '<span class="' + (pnl >= 0 ? 'text-green-400' : 'text-red-400') + '">' + sign + '$' + pnl.toFixed(2) + '</span>';
+                    html += '</td>';
+                } else {
+                    html += '<td class="text-right py-2 px-2 border-b border-dash-border text-gray-500">-</td>';
+                }
+            });
+            html += '</tr>';
+        });
+
+        html += '</tbody></table>';
+        container.innerHTML = html;
+
+    } else {
+        // Flat table for >2 params (or 1 param)
+        let html = '<table class="w-full text-sm border-collapse">';
+        html += '<thead><tr>';
+        params.forEach(p => {
+            html += '<th class="text-left py-2 px-2 text-gray-400 border-b border-dash-border">' + p + '</th>';
+        });
+        html += '<th class="text-right py-2 px-2 text-gray-400 border-b border-dash-border">Net P&L</th>';
+        html += '<th class="text-right py-2 px-2 text-gray-400 border-b border-dash-border">Sharpe</th>';
+        html += '<th class="text-right py-2 px-2 text-gray-400 border-b border-dash-border">Win Rate</th>';
+        html += '<th class="text-right py-2 px-2 text-gray-400 border-b border-dash-border">Trades</th>';
+        html += '</tr></thead><tbody>';
+
+        // Sort by P&L descending
+        const sorted = [...results].sort((a, b) =>
+            parseFloat(b.result.metrics.net_pnl) - parseFloat(a.result.metrics.net_pnl)
+        );
+
+        sorted.forEach((r, idx) => {
+            const pnl = parseFloat(r.result.metrics.net_pnl);
+            const color = getColor(pnl);
+            const sign = pnl >= 0 ? '+' : '';
+            const isBest = idx === 0;
+
+            html += '<tr' + (isBest ? ' class="ring-1 ring-green-500"' : '') + '>';
+            params.forEach(p => {
+                html += '<td class="py-2 px-2 border-b border-dash-border text-gray-300 font-mono text-xs">' + r.params[p] + '</td>';
+            });
+            html += '<td class="text-right py-2 px-2 border-b border-dash-border font-mono text-xs" style="background:' + color + '">';
+            html += '<span class="' + (pnl >= 0 ? 'text-green-400' : 'text-red-400') + '">' + sign + '$' + pnl.toFixed(2) + '</span>';
+            html += '</td>';
+
+            const sharpe = r.result.metrics.sharpe_ratio;
+            html += '<td class="text-right py-2 px-2 border-b border-dash-border text-gray-300 font-mono text-xs">' + (sharpe !== null ? parseFloat(sharpe).toFixed(2) : 'N/A') + '</td>';
+
+            const wr = r.result.metrics.win_rate;
+            html += '<td class="text-right py-2 px-2 border-b border-dash-border text-gray-300 font-mono text-xs">' + (wr !== null ? (parseFloat(wr) * 100).toFixed(1) + '%' : 'N/A') + '</td>';
+
+            html += '<td class="text-right py-2 px-2 border-b border-dash-border text-gray-300 font-mono text-xs">' + r.result.metrics.total_trades + '</td>';
+            html += '</tr>';
+        });
+
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    }
+}
+</script>
