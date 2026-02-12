@@ -23,7 +23,7 @@ See `.planning/milestones/v1.0-ROADMAP.md` for full details.
 **Milestone Goal:** Evolve the bot from simple threshold-based trading to an intelligent strategy engine that considers funding rate trends, historical patterns, and market conditions -- validated through backtesting. Done when backtest demonstrates improved returns vs v1.0's simple threshold strategy.
 
 - [x] **Phase 4: Historical Data Foundation** - Fetch, store, and persist historical funding rate and price data from Bybit (completed 2026-02-12)
-- [ ] **Phase 5: Signal Analysis & Integration** - Compute composite entry/exit signals from trends and persistence, wire into orchestrator
+- [x] **Phase 5: Signal Analysis & Integration** - Compute composite entry/exit signals from trends and persistence, wire into orchestrator (completed 2026-02-12)
 - [ ] **Phase 6: Backtest Engine** - Replay historical data through strategy pipeline with parameter optimization and results visualization
 - [ ] **Phase 7: Dynamic Position Sizing** - Scale position sizes by signal conviction within risk constraints
 
@@ -59,9 +59,9 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 05-01-PLAN.md -- Signal data models, config, trend detection, persistence scoring (SGNL-01, SGNL-02)
-- [ ] 05-02-PLAN.md -- Basis spread, volume trend filter, index price extraction (SGNL-04, SGNL-05)
-- [ ] 05-03-PLAN.md -- Composite signal aggregator, SignalEngine, orchestrator integration (SGNL-03, SGNL-06)
+- [x] 05-01-PLAN.md -- Signal data models, config, trend detection, persistence scoring (SGNL-01, SGNL-02)
+- [x] 05-02-PLAN.md -- Basis spread, volume trend filter, index price extraction (SGNL-04, SGNL-05)
+- [x] 05-03-PLAN.md -- Composite signal aggregator, SignalEngine, orchestrator integration (SGNL-03, SGNL-06)
 
 ### Phase 6: Backtest Engine
 **Goal**: User can replay historical data through the full strategy pipeline to compare v1.0 vs v1.1 performance and optimize signal parameters
@@ -104,6 +104,6 @@ Phases execute in numeric order: 4 -> 5 -> 6 -> 7
 | 2. Multi-Pair Intelligence | v1.0 | 4/4 | Complete | 2026-02-11 |
 | 3. Dashboard & Analytics | v1.0 | 5/5 | Complete | 2026-02-11 |
 | 4. Historical Data Foundation | v1.1 | 3/3 | Complete | 2026-02-12 |
-| 5. Signal Analysis & Integration | v1.1 | 0/3 | Planned | - |
+| 5. Signal Analysis & Integration | v1.1 | 3/3 | Complete | 2026-02-12 |
 | 6. Backtest Engine | v1.1 | 0/TBD | Not started | - |
 | 7. Dynamic Position Sizing | v1.1 | 0/TBD | Not started | - |
