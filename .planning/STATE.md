@@ -11,11 +11,11 @@ See: .planning/PROJECT.md (updated 2026-02-12)
 
 Milestone: v1.1 Strategy Intelligence
 Phase: 4 of 7 (Historical Data Foundation)
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-02-12 -- Roadmap created for v1.1
+Plan: 1 of 3 in current phase
+Status: Executing
+Last activity: 2026-02-12 -- Completed 04-01-PLAN.md
 
-Progress: [██████████░░░░░░░░░░] 50% (v1.0 complete, v1.1 starting)
+Progress: [██████████░░░░░░░░░░] 52% (v1.0 complete, v1.1 phase 4: 1/3 plans)
 
 ## Performance Metrics
 
@@ -32,6 +32,12 @@ Progress: [██████████░░░░░░░░░░] 50% (v1
 | 2. Multi-Pair Intelligence | 4 | Complete |
 | 3. Dashboard & Analytics | 5 | Complete |
 
+**By Phase (v1.1):**
+
+| Phase | Plans | Duration | Status |
+|-------|-------|----------|--------|
+| 4. Historical Data Foundation | 1/3 | 3min | In Progress |
+
 *v1.1 metrics will be tracked as plans complete*
 
 ## Accumulated Context
@@ -45,6 +51,9 @@ Recent decisions affecting current work:
 - Build order: data foundation -> signal analysis -> backtest engine -> dynamic sizing
 - All v1.1 components are optional (feature flags, `| None = None` injection)
 - v1.0 baseline preserved as fallback via `strategy_mode: simple`
+- Decimal values stored as TEXT in SQLite to preserve precision
+- WAL journal mode + NORMAL synchronous for database performance
+- Exchange client fetch methods are thin wrappers -- pagination handled by higher-level fetchers
 
 ### Pending Todos
 
@@ -59,6 +68,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: Roadmap created for v1.1 milestone
+Stopped at: Completed 04-01-PLAN.md
 Resume file: None
-Next step: `/gsd:plan-phase 4`
+Next step: `/gsd:execute-phase 04` (plan 02)
