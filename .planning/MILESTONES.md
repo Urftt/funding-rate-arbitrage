@@ -23,3 +23,28 @@
 See `.planning/milestones/v1.0-ROADMAP.md` for full details.
 
 ---
+
+## v1.1 Strategy Intelligence (Shipped: 2026-02-12)
+
+**Phases completed:** 4 phases (4-7), 12 plans, ~24 tasks
+**Lines of code:** 9,540 Python + 1,320 HTML (+ 6,246 test LOC)
+**Files changed:** 81 (13,583 insertions)
+**Timeline:** 1 day (2026-02-12)
+**Git range:** feat(04-01) → docs(phase-07)
+
+**Delivered:** Intelligent strategy engine with composite signals (trend, persistence, basis spread, volume), backtesting with parameter optimization, dynamic position sizing, and dashboard backtest visualization — all validated against v1.0 baseline.
+
+**Key accomplishments:**
+1. Persistent historical data pipeline: async SQLite store with 50,919 records (funding rates + OHLCV), backward pagination, fetch state resume, and dashboard data status widget (DATA-01/02/03/04)
+2. Composite signal engine: EMA trend detection, persistence scoring, basis spread, volume filtering — weighted into single signal score with strategy_mode feature flag preserving v1.0 behavior (SGNL-01/02/03/04/05/06)
+3. Full backtesting engine: event-driven historical replay using production FeeCalculator/PnLTracker/PositionManager, look-ahead prevention via time-bounded data wrapper (BKTS-01/02)
+4. Parameter optimization: grid search sweep over thresholds and signal weights with v1.0 vs v1.1 comparison mode (BKTS-03/05)
+5. Dashboard backtest page: Chart.js equity curve, parameter heatmap, background task execution with async polling, comparison table (BKTS-04)
+6. Dynamic position sizing: signal-conviction scaling with portfolio exposure cap, delegating to existing PositionSizer for exchange constraints (SIZE-01/02/03)
+
+**All 18 v1.1 requirements shipped. 286 tests passing.**
+
+See `.planning/milestones/v1.1-ROADMAP.md` for full details.
+
+---
+

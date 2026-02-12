@@ -5,24 +5,26 @@
 See: .planning/PROJECT.md (updated 2026-02-12)
 
 **Core value:** The bot correctly identifies funding rate opportunities and executes delta-neutral positions that collect funding payments without taking directional risk.
-**Current focus:** v1.1 Strategy Intelligence -- COMPLETE
+**Current focus:** Planning next milestone
 
 ## Current Position
 
-Milestone: v1.1 Strategy Intelligence
-Phase: 7 of 7 (Dynamic Position Sizing) -- COMPLETE
-Plan: 2 of 2 in current phase -- COMPLETE
-Status: Phase 7 complete -- DynamicSizer core + integration
-Last activity: 2026-02-12 -- Plan 07-02 execution complete
+Milestone: v1.1 Strategy Intelligence -- SHIPPED
+Phase: All complete (7 phases, 26 plans across v1.0 + v1.1)
+Status: Milestone v1.1 archived, ready for next milestone planning
+Last activity: 2026-02-12 -- v1.1 milestone completion
 
-Progress: [████████████████████] 100% (v1.0 complete, v1.1 complete)
+Progress: [████████████████████] 100% (v1.0 + v1.1 complete)
 
 ## Performance Metrics
 
 **Velocity (v1.0):**
 - Total plans completed: 14
 - Total execution time: ~1 day
-- Average: ~1.7 hours/plan
+
+**Velocity (v1.1):**
+- Total plans completed: 12
+- Total execution time: ~54min
 
 **By Phase (v1.0):**
 
@@ -47,48 +49,6 @@ Progress: [████████████████████] 100% (v
 
 All decisions logged in PROJECT.md Key Decisions table.
 
-Recent decisions affecting current work:
-- v1.1 scope: 18 requirements across 4 categories (DATA, SGNL, BKTS, SIZE)
-- Build order: data foundation -> signal analysis -> backtest engine -> dynamic sizing
-- All v1.1 components are optional (feature flags, `| None = None` injection)
-- v1.0 baseline preserved as fallback via `strategy_mode: simple`
-- Decimal values stored as TEXT in SQLite to preserve precision
-- WAL journal mode + NORMAL synchronous for database performance
-- Exchange client fetch methods are thin wrappers -- pagination handled by higher-level fetchers
-- HistoricalDataStore wraps database with typed methods; all Decimal stored as TEXT, restored on read
-- Backward pagination uses endTime parameter (never startTime alone) per Bybit API requirement
-- Bybit kline response reversed before processing (newest-first pitfall)
-- Incremental updates: DEBUG per-pair, INFO summary (signal-to-noise balance)
-- Orchestrator waits up to 30s for funding monitor first poll before historical fetch
-- Dashboard mode delegates SIGINT/SIGTERM to uvicorn for clean shutdown
-- Data status widget uses 4-state Jinja2 conditional (disabled, starting, fetching, normal)
-- Index prices cached in separate dict on FundingMonitor (not modifying FundingRateData v1.0 type)
-- Volume trend is a hard filter: volume_ok=False rejects pair regardless of composite score
-- Graceful degradation: insufficient candle data returns True (don't reject for lack of data)
-- Spot symbol derivation duplicated in SignalEngine (not imported from ranker) for module independence
-- Composite score uses rate as proxy for net_yield; actual fee check remains in PositionManager
-- Composite mode with signal_engine=None falls back to simple path (defensive)
-- BacktestExecutor uses injected prices (set_prices) rather than TickerService for full isolation
-- BacktestDataStoreWrapper uses min(until_ms, current_time) cap for look-ahead prevention
-- PnLTracker time_fn defaults to time.time for backward compatibility
-- Engine creates its own component instances rather than accepting pre-built ones -- simplifies API and ensures correct wiring
-- Simple strategy uses inline threshold comparison (not OpportunityRanker) since backtesting single-symbol
-- Generous InstrumentInfo for backtest mode (no exchange constraint validation needed)
-- Composite mode falls back to simple strategy on error for resilience
-- CLI uses --backtest flag detection in main() before any bot component init -- zero overhead when not backtesting
-- Memory management discards equity curves from non-best sweep results to prevent growth
-- format_sweep_summary() uses plain print() -- no external table formatting dependency
-- Sweep endpoint returns 501 with message when ParameterSweep module not yet available (graceful degradation)
-- Background backtest tasks use asyncio.create_task with polling instead of WebSocket push for simplicity
-- Equity curve uses Chart.js CDN matching existing dashboard HTMX/CDN pattern
-- Heatmap uses HTML table with inline rgba backgrounds instead of Chart.js matrix plugin for reliability
-- DynamicSizingSettings does NOT duplicate max_position_size_usd -- reads from TradingSettings via constructor injection
-- Linear interpolation for score-to-fraction mapping (simplest, configurable, backtestable)
-- DynamicSizer delegates to PositionSizer for exchange constraints (SIZE-03 mandate)
-- Orchestrator breaks out of composite loop (not continue) when portfolio cap reached
-- BacktestEngine stores _last_signal_score on self rather than changing _composite_decision return type
-- Backtest dynamic sizer uses initial_capital as max_position_size_usd (natural backtest boundary)
-
 ### Pending Todos
 
 None.
@@ -102,6 +62,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: Completed 07-02-PLAN.md -- DynamicSizer integration (Phase 7 complete, v1.1 complete)
+Stopped at: v1.1 milestone archived and tagged
 Resume file: None
-Next step: v1.1 Strategy Intelligence milestone complete. All 4 phases (4-7) done.
+Next step: /gsd:new-milestone to plan v1.2 or next version
