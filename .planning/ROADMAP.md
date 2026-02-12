@@ -39,11 +39,12 @@ See `.planning/milestones/v1.0-ROADMAP.md` for full details.
   3. Historical data survives bot restarts without re-fetching (SQLite persistence)
   4. Resuming a fetch after interruption continues from the last stored record, not from scratch
   5. API rate limits are respected automatically (no 429 errors during bulk fetches)
-**Plans**: TBD
+**Plans:** 3 plans
 
 Plans:
-- [ ] 04-01: TBD
-- [ ] 04-02: TBD
+- [ ] 04-01-PLAN.md -- Data models, database, config, pair selector, exchange client extensions
+- [ ] 04-02-PLAN.md -- HistoricalDataStore and HistoricalDataFetcher (data pipeline core)
+- [ ] 04-03-PLAN.md -- Orchestrator integration, main.py wiring, dashboard data status widget
 
 ### Phase 5: Signal Analysis & Integration
 **Goal**: Bot makes entry/exit decisions using composite signals (funding rate trends, persistence, basis spread, volume) instead of simple thresholds, with a feature flag to revert to v1.0 behavior
@@ -102,7 +103,7 @@ Phases execute in numeric order: 4 -> 5 -> 6 -> 7
 | 1. Core Trading Engine | v1.0 | 5/5 | Complete | 2026-02-11 |
 | 2. Multi-Pair Intelligence | v1.0 | 4/4 | Complete | 2026-02-11 |
 | 3. Dashboard & Analytics | v1.0 | 5/5 | Complete | 2026-02-11 |
-| 4. Historical Data Foundation | v1.1 | 0/TBD | Not started | - |
+| 4. Historical Data Foundation | v1.1 | 0/3 | Planned | - |
 | 5. Signal Analysis & Integration | v1.1 | 0/TBD | Not started | - |
 | 6. Backtest Engine | v1.1 | 0/TBD | Not started | - |
 | 7. Dynamic Position Sizing | v1.1 | 0/TBD | Not started | - |
