@@ -129,6 +129,21 @@ class SignalSettings(BaseSettings):
     rate_normalization_cap: Decimal = Decimal("0.003")  # Cap for normalizing rate to 0-1
 
 
+class BacktestSettings(BaseSettings):
+    """Backtest engine configuration.
+
+    Controls default parameters for backtest runs including initial capital,
+    slippage simulation, and concurrency limits.
+    All fields configurable via BACKTEST_ environment variable prefix.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="BACKTEST_")
+
+    default_initial_capital: Decimal = Decimal("10000")
+    slippage_bps: Decimal = Decimal("5")  # 5 basis points = 0.05%
+    max_concurrent_positions: int = 5
+
+
 @dataclass
 class RuntimeConfig:
     """Mutable runtime config overlay. Non-None fields override BaseSettings values.
@@ -163,3 +178,4 @@ class AppSettings(BaseSettings):
     dashboard: DashboardSettings = DashboardSettings()
     historical: HistoricalDataSettings = HistoricalDataSettings()
     signal: SignalSettings = SignalSettings()
+    backtest: BacktestSettings = BacktestSettings()
