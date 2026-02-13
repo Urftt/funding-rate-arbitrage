@@ -5,17 +5,17 @@
 See: .planning/PROJECT.md (updated 2026-02-13)
 
 **Core value:** The bot correctly identifies funding rate opportunities and executes delta-neutral positions that collect funding payments without taking directional risk.
-**Current focus:** v1.2 Strategy Discovery -- Phase 8 (Pair Analysis Foundation)
+**Current focus:** v1.2 Strategy Discovery -- Phase 9 (Trade Replay)
 
 ## Current Position
 
 Milestone: v1.2 Strategy Discovery
-Phase: 8 of 11 (Pair Analysis Foundation)
-Plan: 2 of 2 in current phase
-Status: Phase Complete
-Last activity: 2026-02-13 -- Completed 08-02 (Pair Explorer UI)
+Phase: 9 of 11 (Trade Replay)
+Plan: 1 of 3 in current phase
+Status: In Progress
+Last activity: 2026-02-13 -- Completed 09-01 (Trade Data Layer)
 
-Progress: [████████████████████████░░░░░░] 76% (28/37 plans across all milestones; 2/11 v1.2 plans)
+Progress: [█████████████████████████░░░░░] 78% (29/37 plans across all milestones; 3/11 v1.2 plans)
 
 ## Performance Metrics
 
@@ -37,14 +37,15 @@ Progress: [███████████████████████
 | 7. Dynamic Position Sizing | 2/2 | 6min | Complete |
 
 **Velocity (v1.2):**
-- Total plans completed: 2
-- Total execution time: ~6min
+- Total plans completed: 3
+- Total execution time: ~10min
 
 **By Phase (v1.2):**
 
 | Phase | Plans | Duration | Status |
 |-------|-------|----------|--------|
 | 8. Pair Analysis Foundation | 2/2 | 6min | Complete |
+| 9. Trade Replay | 1/3 | 4min | In Progress |
 
 ## Accumulated Context
 
@@ -57,6 +58,10 @@ All decisions logged in PROJECT.md Key Decisions table.
 - Used IIFE pattern from backtest.html for JS encapsulation consistency (08-02)
 - Attached _showDetail to window for onclick access from innerHTML-built rows (08-02)
 - Formatted all Decimal strings as percentages (* 100) with 4 decimal places (08-02)
+- Used TYPE_CHECKING import for PositionPnL to avoid circular imports (09-01)
+- Fixed total_trades to count round-trip trades instead of open+close events (09-01)
+- Dynamic histogram bin count adapts to trade count: min(10, max(3, len(trades) // 3)) (09-01)
+- avg_loss computed as absolute value for positive display magnitude (09-01)
 
 ### Pending Todos
 
@@ -73,6 +78,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-13
-Stopped at: Completed 08-02-PLAN.md (Phase 08 complete)
+Stopped at: Completed 09-01-PLAN.md
 Resume file: None
-Next step: /gsd:execute-phase 09
+Next step: /gsd:execute-phase 09 (plan 02)
