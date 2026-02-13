@@ -5,17 +5,17 @@
 See: .planning/PROJECT.md (updated 2026-02-13)
 
 **Core value:** The bot correctly identifies funding rate opportunities and executes delta-neutral positions that collect funding payments without taking directional risk.
-**Current focus:** v1.2 Strategy Discovery -- Phase 9 (Trade Replay) COMPLETE
+**Current focus:** v1.2 Strategy Discovery -- Phase 10 (Strategy Builder Visualization) IN PROGRESS
 
 ## Current Position
 
 Milestone: v1.2 Strategy Discovery
-Phase: 9 of 11 (Trade Replay)
-Plan: 3 of 3 in current phase
-Status: Phase Complete
-Last activity: 2026-02-13 -- Completed 09-03 (Trade Markers & P&L Histogram)
+Phase: 10 of 11 (Strategy Builder Visualization)
+Plan: 2 of 3 in current phase
+Status: In Progress
+Last activity: 2026-02-13 -- Completed 10-02 (Strategy Presets)
 
-Progress: [███████████████████████████░░░] 84% (31/37 plans across all milestones; 5/11 v1.2 plans)
+Progress: [████████████████████████████░░] 89% (33/37 plans across all milestones; 7/11 v1.2 plans)
 
 ## Performance Metrics
 
@@ -37,8 +37,8 @@ Progress: [███████████████████████
 | 7. Dynamic Position Sizing | 2/2 | 6min | Complete |
 
 **Velocity (v1.2):**
-- Total plans completed: 5
-- Total execution time: ~14min
+- Total plans completed: 7
+- Total execution time: ~18min
 
 **By Phase (v1.2):**
 
@@ -46,6 +46,7 @@ Progress: [███████████████████████
 |-------|-------|----------|--------|
 | 8. Pair Analysis Foundation | 2/2 | 6min | Complete |
 | 9. Trade Replay | 3/3 | 8min | Complete |
+| 10. Strategy Builder Visualization | 2/3 | 4min | In Progress |
 
 ## Accumulated Context
 
@@ -68,6 +69,8 @@ All decisions logged in PROJECT.md Key Decisions table.
 - Trade markers use timestamp-to-index lookup for O(1) equity curve position mapping (09-03)
 - Scatter datasets conditionally added only when trades exist for graceful degradation (09-03)
 - Histogram hidden in compare/sweep modes; sweep best result passes trades for markers (09-03)
+- Preset param values stored as strings for direct JSON/form compatibility (10-02)
+- Presets fetched on page load with graceful degradation if endpoint unavailable (10-02)
 
 ### Pending Todos
 
@@ -84,6 +87,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-13
-Stopped at: Completed 09-03-PLAN.md (Phase 09 complete)
+Stopped at: Completed 10-02-PLAN.md
 Resume file: None
-Next step: /gsd:plan-phase 10
+Next step: Execute 10-03-PLAN.md
