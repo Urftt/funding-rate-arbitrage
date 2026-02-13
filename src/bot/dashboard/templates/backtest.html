@@ -28,6 +28,12 @@
         <!-- Equity Curve Chart -->
         {% include "partials/equity_curve.html" %}
 
+        <!-- Trade Statistics (shown for single backtest) -->
+        {% include "partials/trade_stats.html" %}
+
+        <!-- Trade Log (shown for single backtest) -->
+        {% include "partials/trade_log.html" %}
+
         <!-- Comparison Table (shown for compare mode) -->
         <div id="comparison-section" class="hidden">
             <div class="bg-dash-card rounded-lg border border-dash-border p-4">
@@ -74,6 +80,11 @@
     const comparisonBody = document.getElementById('comparison-body');
     const heatmapSection = document.getElementById('heatmap-section');
     const equitySection = document.getElementById('equity-curve-section');
+    const tradeLogSection = document.getElementById('trade-log-section');
+    const tradeLogBody = document.getElementById('trade-log-body');
+    const tradeLogEmpty = document.getElementById('trade-log-empty');
+    const tradeStatsSection = document.getElementById('trade-stats-section');
+    const tradeStatsCards = document.getElementById('trade-stats-cards');
 
     let pollInterval = null;
 
@@ -138,8 +149,12 @@
         errorEl.classList.add('hidden');
         comparisonSection.classList.add('hidden');
         heatmapSection.classList.add('hidden');
+        tradeLogSection.classList.add('hidden');
+        tradeStatsSection.classList.add('hidden');
         metricsCards.innerHTML = '';
         comparisonBody.innerHTML = '';
+        tradeLogBody.innerHTML = '';
+        tradeStatsCards.innerHTML = '';
     }
 
     /**
@@ -199,6 +214,17 @@
     }
 
     /**
+     * Format a millisecond timestamp as a short date+time string.
+     * @param {number} ms - Timestamp in milliseconds.
+     * @returns {string} Formatted date string like "Jan 5 02:30 PM".
+     */
+    function fmtDate(ms) {
+        var d = new Date(ms);
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' +
+               d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    }
+
+    /**
      * Display metrics for a single backtest result.
      * @param {Object} metrics - Metrics object from BacktestResult.
      */
@@ -218,6 +244,83 @@
     }
 
     /**
+     * Display the trade log table with expandable detail rows.
+     * @param {Array|null} trades - Array of trade objects from result.trades.
+     */
+    function displayTradeLog(trades) {
+        if (!trades || trades.length === 0) {
+            tradeLogSection.classList.remove('hidden');
+            tradeLogBody.innerHTML = '';
+            tradeLogEmpty.classList.remove('hidden');
+            return;
+        }
+
+        tradeLogSection.classList.remove('hidden');
+        tradeLogEmpty.classList.add('hidden');
+
+        var html = '';
+        for (var i = 0; i < trades.length; i++) {
+            var t = trades[i];
+            var pnl = parseFloat(t.net_pnl);
+            var pnlColor = pnl >= 0 ? 'text-green-400' : 'text-red-400';
+            var badge = t.is_win
+                ? '<span class="text-green-400 font-medium">Win</span>'
+                : '<span class="text-red-400 font-medium">Loss</span>';
+
+            // Summary row (clickable)
+            html += '<tr class="border-b border-dash-border hover:bg-gray-800/50 cursor-pointer" onclick="this.nextElementSibling.classList.toggle(\'hidden\')">';
+            html += '<td class="py-2 px-2 text-gray-300">' + t.trade_number + '</td>';
+            html += '<td class="py-2 px-2 text-gray-300 text-xs">' + fmtDate(t.entry_time_ms) + '</td>';
+            html += '<td class="py-2 px-2 text-gray-300 text-xs">' + fmtDate(t.exit_time_ms) + '</td>';
+            html += '<td class="py-2 px-2 text-right font-mono ' + pnlColor + '">' + fmtDollar(t.net_pnl) + '</td>';
+            html += '<td class="py-2 px-2 text-right text-gray-300">' + t.holding_periods + '</td>';
+            html += '<td class="py-2 px-2">' + badge + '</td>';
+            html += '</tr>';
+
+            // Detail row (hidden by default)
+            html += '<tr class="hidden border-b border-dash-border bg-gray-900/30">';
+            html += '<td colspan="6" class="py-3 px-4">';
+            html += '<div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">';
+            html += '<div><span class="text-gray-500">Symbol</span><br><span class="text-gray-300">' + t.symbol + '</span></div>';
+            html += '<div><span class="text-gray-500">Entry Price</span><br><span class="text-gray-300">$' + parseFloat(t.entry_price).toFixed(2) + '</span></div>';
+            html += '<div><span class="text-gray-500">Exit Price</span><br><span class="text-gray-300">$' + parseFloat(t.exit_price).toFixed(2) + '</span></div>';
+            html += '<div><span class="text-gray-500">Quantity</span><br><span class="text-gray-300">' + parseFloat(t.quantity).toFixed(4) + '</span></div>';
+            html += '<div><span class="text-gray-500">Funding Collected</span><br><span class="text-blue-400">' + fmtDollar(t.funding_collected) + '</span></div>';
+            html += '<div><span class="text-gray-500">Entry Fee</span><br><span class="text-orange-400">' + fmtDollar(t.entry_fee) + '</span></div>';
+            html += '<div><span class="text-gray-500">Exit Fee</span><br><span class="text-orange-400">' + fmtDollar(t.exit_fee) + '</span></div>';
+            html += '<div><span class="text-gray-500">Total Fees</span><br><span class="text-orange-400">' + fmtDollar(t.total_fees) + '</span></div>';
+            html += '</div>';
+            html += '</td>';
+            html += '</tr>';
+        }
+
+        tradeLogBody.innerHTML = html;
+    }
+
+    /**
+     * Display trade statistics summary cards.
+     * @param {Object|null} tradeStats - Trade stats object from result.trade_stats.
+     */
+    function displayTradeStats(tradeStats) {
+        if (!tradeStats || tradeStats.total_trades === 0) {
+            tradeStatsSection.classList.add('hidden');
+            return;
+        }
+
+        tradeStatsSection.classList.remove('hidden');
+
+        tradeStatsCards.innerHTML =
+            metricCard('Total Trades', tradeStats.total_trades, 'text-white') +
+            metricCard('Win Rate', fmtPercent(tradeStats.win_rate), 'text-white') +
+            metricCard('Winning / Losing', tradeStats.winning_trades + ' / ' + tradeStats.losing_trades, 'text-white') +
+            metricCard('Avg Win', tradeStats.avg_win ? fmtDollar(tradeStats.avg_win) : 'N/A', 'text-green-400') +
+            metricCard('Avg Loss', tradeStats.avg_loss ? '-$' + parseFloat(tradeStats.avg_loss).toFixed(2) : 'N/A', 'text-red-400') +
+            metricCard('Best Trade', tradeStats.best_trade ? fmtDollar(tradeStats.best_trade) : 'N/A', 'text-green-400') +
+            metricCard('Worst Trade', tradeStats.worst_trade ? fmtDollar(tradeStats.worst_trade) : 'N/A', 'text-red-400') +
+            metricCard('Avg Holding', tradeStats.avg_holding_periods ? parseFloat(tradeStats.avg_holding_periods).toFixed(1) + ' periods' : 'N/A', 'text-white');
+    }
+
+    /**
      * Display results for a single backtest.
      * @param {Object} result - BacktestResult.to_dict() output.
      */
@@ -234,6 +337,10 @@
 
         comparisonSection.classList.add('hidden');
         heatmapSection.classList.add('hidden');
+
+        displayTradeStats(result.trade_stats);
+        displayTradeLog(result.trades);
+
         resultsEl.classList.remove('hidden');
     }
 
@@ -276,6 +383,8 @@
 
         comparisonSection.classList.remove('hidden');
         heatmapSection.classList.add('hidden');
+        tradeLogSection.classList.add('hidden');
+        tradeStatsSection.classList.add('hidden');
         resultsEl.classList.remove('hidden');
     }
 
@@ -307,6 +416,8 @@
         heatmapSection.classList.remove('hidden');
 
         comparisonSection.classList.add('hidden');
+        tradeLogSection.classList.add('hidden');
+        tradeStatsSection.classList.add('hidden');
         resultsEl.classList.remove('hidden');
     }
 
