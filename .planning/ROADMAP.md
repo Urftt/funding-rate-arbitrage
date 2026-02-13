@@ -104,11 +104,11 @@ Plans:
   3. User can see recommended action labels ("Strong opportunity", "Below average", "Not recommended") derived from historical evidence
   4. User can hover over key metrics to see glossary tooltips explaining what each number means
   5. User can view a "should I trade?" summary page that aggregates historical evidence with confidence ranges into a clear recommendation
-**Plans**: TBD
+**Plans:** 2 plans
 
 Plans:
-- [ ] 11-01: Rate percentile indicators and signal breakdown
-- [ ] 11-02: Action labels, glossary tooltips, and summary page
+- [ ] 11-01-PLAN.md -- DecisionEngine service, API endpoints, and wiring
+- [ ] 11-02-PLAN.md -- Enhanced funding rates panel, decision summary page, glossary tooltips
 
 ## Progress
 
