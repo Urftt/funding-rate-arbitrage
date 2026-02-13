@@ -129,3 +129,10 @@ async def pairs_page(request: Request) -> HTMLResponse:
     """Pair Explorer page for browsing historical funding rate profitability (EXPR-01)."""
     templates: Jinja2Templates = request.app.state.templates
     return templates.TemplateResponse("pairs.html", {"request": request})
+
+
+@router.get("/decision", response_class=HTMLResponse)
+async def decision_page(request: Request) -> HTMLResponse:
+    """Decision Context page -- evidence-backed trading recommendations (DCSN-05)."""
+    templates: Jinja2Templates = request.app.state.templates
+    return templates.TemplateResponse("decision.html", {"request": request})

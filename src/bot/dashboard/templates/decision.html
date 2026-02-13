@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+
+{% block title %}Decision Context{% endblock %}
+
+{% block content %}
+{% macro tooltip(text, explanation) %}
+<span class="relative group cursor-help">
+  <span class="underline decoration-dotted decoration-gray-500">{{ text }}</span>
+  <span class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 rounded bg-gray-800 text-xs text-gray-200 max-w-xs whitespace-normal opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 border border-dash-border shadow-lg">
+    {{ explanation }}
+  </span>
+</span>
+{% endmacro %}
+
+<div class="mb-6">
+  <h1 class="text-xl font-semibold text-white mb-1">Should I Trade?</h1>
+  <p class="text-sm text-gray-400">Evidence-backed recommendations for all tracked pairs with live funding rates</p>
+</div>
+
+<div class="bg-dash-card rounded-lg p-3 border border-dash-border mb-6 flex flex-wrap gap-4 text-sm">
+  {{ tooltip("Percentile", "Where the current rate sits historically. P75 = rate is higher than 75% of observations.") }}
+  {{ tooltip("Trend", "Direction of recent funding rate movement based on EMA analysis. Rising/Stable/Falling.") }}
+  {{ tooltip("Composite Score", "Weighted combination of rate level (35%), trend (25%), persistence (25%), and basis (15%).") }}
+  {{ tooltip("Action Label", "Evidence-based recommendation from percentile rank, trend direction, and signal score.") }}
+  {{ tooltip("Confidence", "How much historical data supports the recommendation. High = 90+ data points.") }}
+  {{ tooltip("Ann. Yield", "Fee-adjusted per-period yield extrapolated to one year. Assumes constant rate.") }}
+  {{ tooltip("Persistence", "How long the rate stayed above threshold. Higher = more consistent opportunity.") }}
+  {{ tooltip("Basis Spread", "Premium/discount of perpetual vs spot price. Positive basis supports positive funding.") }}
+</div>
+
+<div id="decision-cards" class="text-center text-gray-500 py-8">
+  <p>Loading decision contexts...</p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+  async function loadDecisions() {
+    const container = document.getElementById('decision-cards');
+    try {
+      const resp = await fetch('/api/decision/summary');
+      if (!resp.ok) {
+        container.innerHTML = '<p class="text-gray-500 italic">Decision engine not available. Enable historical data collection to use this feature.</p>';
+        return;
+      }
+      const data = await resp.json();
+      const symbols = Object.keys(data);
+
+      if (symbols.length === 0) {
+        container.innerHTML = '<p class="text-gray-500 italic">No pairs with live funding rates found.</p>';
+        return;
+      }
+
+      // Sort: Strong first, then Moderate, then Below average, then Not recommended, then Insufficient
+      const labelOrder = {'Strong opportunity': 0, 'Moderate opportunity': 1, 'Below average': 2, 'Not recommended': 3, 'Insufficient data': 4};
+      symbols.sort((a, b) => {
+        const la = labelOrder[data[a].action.label] ?? 5;
+        const lb = labelOrder[data[b].action.label] ?? 5;
+        return la - lb;
+      });
+
+      // Summary stats
+      const strong = symbols.filter(s => data[s].action.label === 'Strong opportunity').length;
+      const moderate = symbols.filter(s => data[s].action.label === 'Moderate opportunity').length;
+      const total = symbols.length;
+
+      let html = '<div class="mb-4 text-left"><span class="text-sm text-gray-300">' + strong + ' strong, ' + moderate + ' moderate out of ' + total + ' pairs</span></div>';
+      html += '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">';
+
+      for (const sym of symbols) {
+        const ctx = data[sym];
+        const rc = ctx.rate_context;
+        const action = ctx.action;
+        const signal = ctx.signal_breakdown;
+
+        // Action label color
+        const labelColors = {
+          'Strong opportunity': 'bg-blue-500/20 text-blue-300 border-blue-500/30',
+          'Moderate opportunity': 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
+          'Below average': 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+          'Not recommended': 'bg-red-500/20 text-red-300 border-red-500/30',
+          'Insufficient data': 'bg-gray-500/20 text-gray-400 border-gray-500/30',
+        };
+        const lc = labelColors[action.label] || 'bg-gray-500/20 text-gray-400 border-gray-500/30';
+
+        // Trend arrow
+        const trendArrows = {rising: '<span class="text-green-400">&#9650;</span>', falling: '<span class="text-red-400">&#9660;</span>', stable: '<span class="text-gray-500">&#9644;</span>'};
+        const trendArrow = trendArrows[rc.trend] || '';
+
+        // Percentile color
+        const p = parseInt(rc.percentile);
+        const pColor = p >= 75 ? 'text-blue-300' : p >= 50 ? 'text-cyan-300' : p >= 25 ? 'text-amber-300' : 'text-gray-400';
+
+        html += '<div class="bg-dash-card rounded-lg p-4 border border-dash-border hover:border-dash-border/80">';
+        html += '<div class="flex items-center justify-between mb-2">';
+        html += '<span class="font-mono text-sm text-white">' + sym.replace('/USDT:USDT', '') + '</span>';
+        html += '<span class="text-xs px-2 py-0.5 rounded ' + lc + '">' + action.label + '</span>';
+        html += '</div>';
+        html += '<div class="grid grid-cols-3 gap-2 text-xs mb-3">';
+        html += '<div><span class="text-gray-500 block">Percentile</span><span class="' + pColor + ' font-mono">P' + p + '</span></div>';
+        html += '<div><span class="text-gray-500 block">Trend</span><span>' + trendArrow + ' <span class="text-gray-300 capitalize">' + rc.trend + '</span></span></div>';
+        html += '<div><span class="text-gray-500 block">Rate</span><span class="font-mono text-gray-300">' + (parseFloat(rc.current_rate) * 100).toFixed(4) + '%</span></div>';
+        html += '</div>';
+        html += '<div class="grid grid-cols-3 gap-2 text-xs mb-3">';
+        html += '<div><span class="text-gray-500 block">Avg Rate</span><span class="font-mono text-gray-300">' + (parseFloat(rc.avg_rate) * 100).toFixed(4) + '%</span></div>';
+        html += '<div><span class="text-gray-500 block">Z-Score</span><span class="font-mono text-gray-300">' + parseFloat(rc.z_score).toFixed(2) + '</span></div>';
+        html += '<div><span class="text-gray-500 block">Confidence</span><span class="text-gray-300 capitalize">' + action.confidence + '</span></div>';
+        html += '</div>';
+
+        if (signal) {
+          html += '<div class="border-t border-dash-border/50 pt-2 mt-2">';
+          html += '<span class="text-xs text-gray-500 block mb-1">Signal Score: <span class="font-mono text-white">' + parseFloat(signal.composite_score).toFixed(2) + '</span></span>';
+          html += '<div class="grid grid-cols-4 gap-1 text-xs">';
+          var barData = [
+            {key: 'rate_level', label: 'Rate'},
+            {key: 'trend_score', label: 'Trend'},
+            {key: 'persistence', label: 'Persist'},
+            {key: 'basis_score', label: 'Basis'}
+          ];
+          for (var bi = 0; bi < barData.length; bi++) {
+            var bd = barData[bi];
+            var bw = (parseFloat(signal[bd.key]) * 100).toFixed(0);
+            html += '<div title="' + bd.label + '"><div class="h-1 bg-gray-700 rounded"><div class="h-1 bg-blue-500 rounded" style="width:' + bw + '%"></div></div><span class="text-gray-500">' + bd.label + '</span></div>';
+          }
+          html += '</div></div>';
+        } else {
+          html += '<div class="border-t border-dash-border/50 pt-2 mt-2"><span class="text-xs text-gray-500 italic">Signal data unavailable</span></div>';
+        }
+
+        html += '<div class="border-t border-dash-border/50 pt-2 mt-2"><div class="text-xs text-gray-500">';
+        for (var ri = 0; ri < action.reasons.length; ri++) {
+          html += '<div class="mt-0.5">- ' + action.reasons[ri] + '</div>';
+        }
+        html += '</div></div></div>';
+      }
+      html += '</div>';
+      container.innerHTML = html;
+    } catch (e) {
+      container.innerHTML = '<p class="text-red-400">Error loading decision contexts: ' + e.message + '</p>';
+    }
+  }
+  loadDecisions();
+})();
+</script>
+{% endblock %}
