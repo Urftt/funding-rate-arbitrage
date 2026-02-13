@@ -72,6 +72,15 @@ async def dashboard_index(request: Request) -> HTMLResponse:
     # Current settings for config form
     settings = orchestrator._settings
 
+    # Decision contexts for enhanced funding rates panel (Phase 11)
+    decision_engine = getattr(request.app.state, "decision_engine", None)
+    decision_contexts = {}
+    if decision_engine is not None:
+        try:
+            decision_contexts = await decision_engine.get_all_decision_contexts()
+        except Exception:
+            decision_contexts = {}
+
     # Data status for historical data widget (may be None if feature disabled)
     data_store = getattr(request.app.state, "data_store", None)
     if data_store is not None:
@@ -92,6 +101,7 @@ async def dashboard_index(request: Request) -> HTMLResponse:
         "settings": settings,
         "data_status": data_status,
         "fetch_progress": fetch_progress,
+        "decision_contexts": decision_contexts,
     }
 
     return templates.TemplateResponse("index.html", context)

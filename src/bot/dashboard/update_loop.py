@@ -106,9 +106,18 @@ async def dashboard_update_loop(app: FastAPI) -> None:
                 f'<div id="positions-panel" hx-swap-oob="true">{html}</div>'
             )
 
+            # Decision contexts for enhanced funding rates panel (Phase 11)
+            decision_engine = getattr(app.state, "decision_engine", None)
+            decision_contexts = {}
+            if decision_engine is not None:
+                try:
+                    decision_contexts = await decision_engine.get_all_decision_contexts()
+                except Exception:
+                    log.debug("decision_contexts_unavailable", exc_info=True)
+
             # Funding rates partial
             tpl = env.get_template("partials/funding_rates.html")
-            html = tpl.render(funding_rates=funding_rates)
+            html = tpl.render(funding_rates=funding_rates, decision_contexts=decision_contexts)
             fragments.append(
                 f'<div id="funding-rates-panel" hx-swap-oob="true">{html}</div>'
             )

@@ -11,6 +11,9 @@
               <th class="text-right py-2 px-2">Rate</th>
               <th class="text-right py-2 px-2">Volume 24h</th>
               <th class="text-right py-2 px-2">Interval</th>
+              <th class="text-right py-2 px-2">Pctl</th>
+              <th class="text-center py-2 px-2">Trend</th>
+              <th class="text-right py-2 px-2">Action</th>
             </tr>
           </thead>
           <tbody>
@@ -22,6 +25,42 @@
                 </td>
                 <td class="py-1.5 px-2 text-right text-gray-400">{{ "{:,.0f}".format(fr.volume_24h | float) }}</td>
                 <td class="py-1.5 px-2 text-right text-gray-400">{{ fr.interval_hours }}h</td>
+                {% set ctx = decision_contexts.get(fr.symbol) if decision_contexts is defined and decision_contexts else none %}
+                <td class="py-1.5 px-2 text-right">
+                  {% if ctx and ctx.rate_context %}
+                    {% set p = ctx.rate_context.percentile | int %}
+                    <span class="text-xs px-1.5 py-0.5 rounded
+                      {% if p >= 75 %}bg-blue-500/20 text-blue-300
+                      {% elif p >= 50 %}bg-cyan-500/20 text-cyan-300
+                      {% elif p >= 25 %}bg-amber-500/20 text-amber-300
+                      {% else %}bg-gray-500/20 text-gray-400{% endif %}">
+                      P{{ p }}
+                    </span>
+                  {% endif %}
+                </td>
+                <td class="py-1.5 px-2 text-center">
+                  {% if ctx and ctx.rate_context %}
+                    {% if ctx.rate_context.trend.value == 'rising' %}
+                      <span class="text-green-400 text-xs" title="Rising">&#9650;</span>
+                    {% elif ctx.rate_context.trend.value == 'falling' %}
+                      <span class="text-red-400 text-xs" title="Falling">&#9660;</span>
+                    {% else %}
+                      <span class="text-gray-500 text-xs" title="Stable">&#9644;</span>
+                    {% endif %}
+                  {% endif %}
+                </td>
+                <td class="py-1.5 px-2 text-right">
+                  {% if ctx and ctx.action %}
+                    <span class="text-xs px-1.5 py-0.5 rounded whitespace-nowrap
+                      {% if ctx.action.label == 'Strong opportunity' %}bg-blue-500/20 text-blue-300
+                      {% elif ctx.action.label == 'Moderate opportunity' %}bg-cyan-500/20 text-cyan-300
+                      {% elif ctx.action.label == 'Below average' %}bg-amber-500/20 text-amber-300
+                      {% elif ctx.action.label == 'Insufficient data' %}bg-gray-500/20 text-gray-400
+                      {% else %}bg-red-500/20 text-red-300{% endif %}">
+                      {{ ctx.action.label }}
+                    </span>
+                  {% endif %}
+                </td>
               </tr>
             {% endfor %}
           </tbody>
