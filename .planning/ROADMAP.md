@@ -39,7 +39,7 @@ See `.planning/milestones/v1.1-ROADMAP.md` for full details.
 
 - [x] **Phase 8: Pair Analysis Foundation** - User can explore and compare pairs by historical funding rate profitability (completed 2026-02-13)
 - [x] **Phase 9: Trade Replay** - User can inspect individual backtest trades to understand why strategies win or lose (completed 2026-02-13)
-- [ ] **Phase 10: Strategy Builder & Visualization** - User can test strategies across multiple pairs and analyze rate distributions
+- [x] **Phase 10: Strategy Builder & Visualization** - User can test strategies across multiple pairs and analyze rate distributions (completed 2026-02-13)
 - [ ] **Phase 11: Decision Context** - User can see actionable recommendations backed by historical evidence
 
 ## Phase Details
@@ -90,9 +90,9 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 10-01: Multi-pair backtest execution (MultiPairResult, run_multi_pair, API, form UI, comparison table)
-- [ ] 10-02: Strategy presets (STRATEGY_PRESETS dict, API endpoint, preset buttons, form pre-fill)
-- [ ] 10-03: Distribution histograms, box plots, CoinGecko market cap filtering, and performance summary
+- [x] 10-01: Multi-pair backtest execution (MultiPairResult, run_multi_pair, API, form UI, comparison table)
+- [x] 10-02: Strategy presets (STRATEGY_PRESETS dict, API endpoint, preset buttons, form pre-fill)
+- [x] 10-03: Distribution histograms, box plots, CoinGecko market cap filtering, and performance summary
 
 ### Phase 11: Decision Context
 **Goal**: User can see actionable, evidence-backed recommendations on existing dashboard panels that answer "should I trade this pair?"
@@ -127,5 +127,5 @@ Phases execute in numeric order: 8 → 9 → 10 → 11
 | 7. Dynamic Position Sizing | v1.1 | 2/2 | Complete | 2026-02-12 |
 | 8. Pair Analysis Foundation | v1.2 | 2/2 | Complete | 2026-02-13 |
 | 9. Trade Replay | v1.2 | 3/3 | Complete | 2026-02-13 |
-| 10. Strategy Builder & Visualization | v1.2 | 0/3 | Not started | - |
+| 10. Strategy Builder & Visualization | v1.2 | 3/3 | Complete | 2026-02-13 |
 | 11. Decision Context | v1.2 | 0/2 | Not started | - |
