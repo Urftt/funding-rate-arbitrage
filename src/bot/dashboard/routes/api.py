@@ -194,6 +194,76 @@ def _range_to_since_ms(range_str: str) -> int | None:
     return int(time.time() * 1000) - days * 86400 * 1000
 
 
+@router.get("/pairs/{symbol:path}/distribution")
+async def get_pair_distribution(
+    request: Request, symbol: str, range: str = "all"
+) -> JSONResponse:
+    """Phase 10: Get funding rate distribution data for a single pair.
+
+    Returns histogram bins, counts, and raw rate values for chart rendering.
+
+    Path params:
+        symbol: Trading pair symbol (e.g., "BTC/USDT:USDT").
+
+    Query params:
+        range: Date range filter -- "7d", "30d", "90d", or "all" (default).
+
+    Returns:
+        JSON object with bins, counts, and raw_rates arrays.
+    """
+    pair_analyzer = getattr(request.app.state, "pair_analyzer", None)
+    if pair_analyzer is None:
+        return JSONResponse(content={"error": "Pair analysis not available"}, status_code=501)
+    since_ms = _range_to_since_ms(range)
+    try:
+        dist = await pair_analyzer.get_rate_distribution(symbol, since_ms=since_ms)
+        return JSONResponse(content=dist)
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+
+@router.post("/pairs/distributions")
+async def get_multi_pair_distributions(request: Request) -> JSONResponse:
+    """Phase 10: Get raw funding rate arrays for multiple pairs (box plot).
+
+    Expects JSON body with: symbols (list), optional range.
+
+    Returns:
+        JSON object mapping symbol to list of rate value strings.
+    """
+    pair_analyzer = getattr(request.app.state, "pair_analyzer", None)
+    if pair_analyzer is None:
+        return JSONResponse(content={"error": "Pair analysis not available"}, status_code=501)
+    try:
+        body = await request.json()
+        symbols = body.get("symbols", [])
+        range_str = body.get("range", "all")
+        since_ms = _range_to_since_ms(range_str)
+        dist = await pair_analyzer.get_multi_rate_distribution(symbols, since_ms=since_ms)
+        return JSONResponse(content=dist)
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+
+@router.get("/market-cap")
+async def get_market_cap_tiers(request: Request) -> JSONResponse:
+    """Phase 10: Get market cap tier classifications for all tracked pairs.
+
+    Returns:
+        JSON object mapping symbol to tier info (tier, market_cap, coingecko_id).
+    """
+    market_cap_service = getattr(request.app.state, "market_cap_service", None)
+    if market_cap_service is None:
+        return JSONResponse(content={"error": "Market cap service not available"}, status_code=501)
+    data_store = getattr(request.app.state, "data_store", None)
+    if data_store is None:
+        return JSONResponse(content={})
+    pairs = await data_store.get_tracked_pairs(active_only=True)
+    symbols = [p["symbol"] for p in pairs]
+    tiers = market_cap_service.get_pair_tiers(symbols)
+    return JSONResponse(content=tiers)
+
+
 @router.get("/pairs/ranking")
 async def get_pair_ranking(request: Request, range: str = "all") -> JSONResponse:
     """Phase 8: Get all tracked pairs ranked by annualized yield descending.

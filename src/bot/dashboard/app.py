@@ -79,6 +79,9 @@ def create_dashboard_app(lifespan: Any = None) -> FastAPI:
     # Pair analyzer for pair explorer (Phase 8) -- wired by main.py lifespan
     app.state.pair_analyzer = None
 
+    # Market cap service for tier classification (Phase 10) -- wired by main.py lifespan
+    app.state.market_cap_service = None
+
     # Register routers
     app.include_router(pages.router)
     app.include_router(api.router, prefix="/api")

@@ -267,3 +267,78 @@ class PairAnalyzer:
             stats=stats,
             time_series=time_series,
         )
+
+    async def get_rate_distribution(
+        self,
+        symbol: str,
+        since_ms: int | None = None,
+        until_ms: int | None = None,
+    ) -> dict:
+        """Get funding rate distribution data for histogram and box plot rendering.
+
+        Returns server-side histogram bins (for individual pair histogram) and
+        raw rate values as strings (for the boxplot plugin which auto-computes
+        quartiles).
+
+        Args:
+            symbol: Trading pair symbol.
+            since_ms: Optional start timestamp filter.
+            until_ms: Optional end timestamp filter.
+
+        Returns:
+            Dict with "bins", "counts", and "raw_rates" keys.
+        """
+        rates = await self._store.get_funding_rates(symbol, since_ms, until_ms)
+        values = [r.funding_rate for r in rates]
+
+        if not values:
+            return {"bins": [], "counts": [], "raw_rates": []}
+
+        # Server-side histogram binning with percentage labels
+        min_val, max_val = min(values), max(values)
+
+        if min_val == max_val:
+            label = f"{float(min_val) * 100:.4f}%"
+            return {"bins": [label], "counts": [len(values)], "raw_rates": [str(v) for v in values]}
+
+        bin_count = min(20, max(5, len(values) // 20))
+        bin_width = (max_val - min_val) / Decimal(str(bin_count))
+
+        bins = []
+        counts = []
+        for i in range(bin_count):
+            lower = min_val + bin_width * Decimal(str(i))
+            label = f"{float(lower) * 100:.4f}%"
+            upper = lower + bin_width
+            count = sum(
+                1 for v in values
+                if (lower <= v < upper) or (i == bin_count - 1 and v == max_val)
+            )
+            bins.append(label)
+            counts.append(count)
+
+        raw_rates = [str(v) for v in values]
+
+        return {"bins": bins, "counts": counts, "raw_rates": raw_rates}
+
+    async def get_multi_rate_distribution(
+        self,
+        symbols: list[str],
+        since_ms: int | None = None,
+        until_ms: int | None = None,
+    ) -> dict[str, list[str]]:
+        """Get raw funding rate arrays for multiple pairs (for box plot chart).
+
+        Args:
+            symbols: List of trading pair symbols.
+            since_ms: Optional start timestamp filter.
+            until_ms: Optional end timestamp filter.
+
+        Returns:
+            Dict mapping symbol to list of rate value strings.
+        """
+        result = {}
+        for symbol in symbols:
+            rates = await self._store.get_funding_rates(symbol, since_ms, until_ms)
+            result[symbol] = [str(r.funding_rate) for r in rates]
+        return result
