@@ -1,4 +1,4 @@
-"""JSON API endpoints for dashboard data (DASH-01 through DASH-07), backtest (BKTS-04), and pair explorer (Phase 8)."""
+"""JSON API endpoints for dashboard data (DASH-01 through DASH-07), backtest (BKTS-04), pair explorer (Phase 8), and strategy presets (Phase 10)."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 
 from bot.analytics import metrics as analytics_metrics
 from bot.backtest.models import BacktestConfig
+from bot.backtest.presets import STRATEGY_PRESETS
 from bot.backtest.runner import run_backtest, run_comparison
 from bot.pnl.tracker import PositionPnL
 
@@ -249,6 +250,12 @@ async def get_pair_stats(
 # ---------------------------------------------------------------------------
 # Backtest API endpoints (BKTS-04)
 # ---------------------------------------------------------------------------
+
+
+@router.get("/backtest/presets")
+async def get_strategy_presets(request: Request) -> JSONResponse:
+    """Phase 10: Return available strategy preset configurations."""
+    return JSONResponse(content=STRATEGY_PRESETS)
 
 
 def _parse_dates(start_date: str, end_date: str) -> tuple[int, int]:
