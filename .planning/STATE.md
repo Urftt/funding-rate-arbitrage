@@ -5,17 +5,17 @@
 See: .planning/PROJECT.md (updated 2026-02-13)
 
 **Core value:** The bot correctly identifies funding rate opportunities and executes delta-neutral positions that collect funding payments without taking directional risk.
-**Current focus:** v1.2 Strategy Discovery -- Phase 10 (Strategy Builder Visualization) COMPLETE
+**Current focus:** v1.2 Strategy Discovery -- Phase 11 (Decision Context)
 
 ## Current Position
 
 Milestone: v1.2 Strategy Discovery
-Phase: 10 of 11 (Strategy Builder Visualization)
-Plan: 3 of 3 in current phase
-Status: Phase Complete
-Last activity: 2026-02-13 -- Completed 10-03 (Rate Distribution & Market Cap Tiers)
+Phase: 11 of 11 (Decision Context)
+Plan: 1 of 2 in current phase
+Status: In Progress
+Last activity: 2026-02-13 -- Completed 11-01 (DecisionEngine Backend)
 
-Progress: [██████████████████████████████] 95% (35/37 plans across all milestones; 9/11 v1.2 plans)
+Progress: [██████████████████████████████] 97% (36/37 plans across all milestones; 10/11 v1.2 plans)
 
 ## Performance Metrics
 
@@ -37,8 +37,8 @@ Progress: [███████████████████████
 | 7. Dynamic Position Sizing | 2/2 | 6min | Complete |
 
 **Velocity (v1.2):**
-- Total plans completed: 9
-- Total execution time: ~27min
+- Total plans completed: 10
+- Total execution time: ~31min
 
 **By Phase (v1.2):**
 
@@ -47,6 +47,7 @@ Progress: [███████████████████████
 | 8. Pair Analysis Foundation | 2/2 | 6min | Complete |
 | 9. Trade Replay | 3/3 | 8min | Complete |
 | 10. Strategy Builder Visualization | 3/3 | 13min | Complete |
+| 11. Decision Context | 1/2 | 4min | In Progress |
 
 ## Accumulated Context
 
@@ -79,6 +80,10 @@ All decisions logged in PROJECT.md Key Decisions table.
 - Server-side histogram binning with Decimal precision for percentage labels (10-03)
 - CoinGecko data fetched on page load with graceful degradation if unavailable (10-03)
 - Tier column shown in ranking table only when CoinGecko data loads successfully (10-03)
+- Used set_latest_signals pattern for decoupled signal injection avoiding coupling to markets dict (11-01)
+- Summary route registered before symbol:path route for correct FastAPI matching (11-01)
+- DecisionEngine only created when data_store is available, same guard as PairAnalyzer (11-01)
+- Empty weights dict in SignalBreakdown since CompositeSignal does not carry weight config (11-01)
 
 ### Pending Todos
 
@@ -95,6 +100,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-13
-Stopped at: Completed 10-03-PLAN.md (Rate Distribution & Market Cap Tiers)
+Stopped at: Completed 11-01-PLAN.md (DecisionEngine Backend)
 Resume file: None
-Next step: Execute Phase 11 or complete v1.2 milestone
+Next step: Execute 11-02-PLAN.md (Decision Context UI)
