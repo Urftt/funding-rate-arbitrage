@@ -77,35 +77,35 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| EXPR-01 | — | Pending |
-| EXPR-02 | — | Pending |
-| EXPR-03 | — | Pending |
-| EXPR-04 | — | Pending |
-| EXPR-05 | — | Pending |
-| EXPR-06 | — | Pending |
-| EXPR-07 | — | Pending |
-| EXPR-08 | — | Pending |
-| EXPR-09 | — | Pending |
-| TRPL-01 | — | Pending |
-| TRPL-02 | — | Pending |
-| TRPL-03 | — | Pending |
-| TRPL-04 | — | Pending |
-| TRPL-05 | — | Pending |
-| STRT-01 | — | Pending |
-| STRT-02 | — | Pending |
-| STRT-03 | — | Pending |
-| STRT-04 | — | Pending |
-| DCSN-01 | — | Pending |
-| DCSN-02 | — | Pending |
-| DCSN-03 | — | Pending |
-| DCSN-04 | — | Pending |
-| DCSN-05 | — | Pending |
+| EXPR-01 | Phase 8 | Pending |
+| EXPR-02 | Phase 8 | Pending |
+| EXPR-03 | Phase 8 | Pending |
+| EXPR-04 | Phase 10 | Pending |
+| EXPR-05 | Phase 8 | Pending |
+| EXPR-06 | Phase 8 | Pending |
+| EXPR-07 | Phase 10 | Pending |
+| EXPR-08 | Phase 10 | Pending |
+| EXPR-09 | Phase 10 | Pending |
+| TRPL-01 | Phase 9 | Pending |
+| TRPL-02 | Phase 9 | Pending |
+| TRPL-03 | Phase 9 | Pending |
+| TRPL-04 | Phase 9 | Pending |
+| TRPL-05 | Phase 9 | Pending |
+| STRT-01 | Phase 10 | Pending |
+| STRT-02 | Phase 10 | Pending |
+| STRT-03 | Phase 10 | Pending |
+| STRT-04 | Phase 10 | Pending |
+| DCSN-01 | Phase 11 | Pending |
+| DCSN-02 | Phase 11 | Pending |
+| DCSN-03 | Phase 11 | Pending |
+| DCSN-04 | Phase 11 | Pending |
+| DCSN-05 | Phase 11 | Pending |
 
 **Coverage:**
-- v1.2 requirements: 22 total
-- Mapped to phases: 0
-- Unmapped: 22 ⚠️
+- v1.2 requirements: 23 total
+- Mapped to phases: 23
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-13*
-*Last updated: 2026-02-13 after initial definition*
+*Last updated: 2026-02-13 after roadmap creation*
