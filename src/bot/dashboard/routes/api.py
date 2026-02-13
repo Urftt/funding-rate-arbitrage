@@ -1,4 +1,4 @@
-"""JSON API endpoints for dashboard data (DASH-01 through DASH-07), backtest (BKTS-04), pair explorer (Phase 8), and strategy presets (Phase 10)."""
+"""JSON API endpoints for dashboard data (DASH-01 through DASH-07), backtest (BKTS-04), pair explorer (Phase 8), strategy presets (Phase 10), and decision context (Phase 11)."""
 
 from __future__ import annotations
 
@@ -262,6 +262,75 @@ async def get_market_cap_tiers(request: Request) -> JSONResponse:
     symbols = [p["symbol"] for p in pairs]
     tiers = market_cap_service.get_pair_tiers(symbols)
     return JSONResponse(content=tiers)
+
+
+# ---------------------------------------------------------------------------
+# Decision Context API endpoints (Phase 11)
+# ---------------------------------------------------------------------------
+# IMPORTANT: /decision/summary MUST be registered BEFORE /decision/{symbol:path}
+# so FastAPI matches it first. Otherwise "summary" gets captured as a symbol.
+
+
+@router.get("/decision/summary")
+async def get_decision_summary(
+    request: Request, range: str = "all"
+) -> JSONResponse:
+    """Phase 11: Get decision contexts for all pairs with live funding rates.
+
+    Returns a dict mapping symbol to DecisionContext JSON for each pair
+    that has a current live funding rate.
+
+    Query params:
+        range: Date range filter -- "7d", "30d", "90d", or "all" (default).
+
+    Returns:
+        JSON object mapping symbol to DecisionContext dict.
+    """
+    decision_engine = getattr(request.app.state, "decision_engine", None)
+    if decision_engine is None:
+        return JSONResponse(
+            content={"error": "Decision engine not available"}, status_code=501
+        )
+    since_ms = _range_to_since_ms(range)
+    try:
+        contexts = await decision_engine.get_all_decision_contexts(since_ms=since_ms)
+        return JSONResponse(
+            content={symbol: ctx.to_dict() for symbol, ctx in contexts.items()}
+        )
+    except Exception as e:
+        log.error("decision_summary_error", error=str(e))
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+
+@router.get("/decision/{symbol:path}")
+async def get_decision_context_endpoint(
+    request: Request, symbol: str, range: str = "all"
+) -> JSONResponse:
+    """Phase 11: Get decision context for a single pair.
+
+    Returns percentile, trend, optional signal breakdown, and action label.
+
+    Path params:
+        symbol: Trading pair symbol (e.g., "BTC/USDT:USDT").
+
+    Query params:
+        range: Date range filter -- "7d", "30d", "90d", or "all" (default).
+
+    Returns:
+        JSON DecisionContext object.
+    """
+    decision_engine = getattr(request.app.state, "decision_engine", None)
+    if decision_engine is None:
+        return JSONResponse(
+            content={"error": "Decision engine not available"}, status_code=501
+        )
+    since_ms = _range_to_since_ms(range)
+    try:
+        context = await decision_engine.get_decision_context(symbol, since_ms=since_ms)
+        return JSONResponse(content=context.to_dict())
+    except Exception as e:
+        log.error("decision_context_error", symbol=symbol, error=str(e))
+        return JSONResponse(content={"error": str(e)}, status_code=500)
 
 
 @router.get("/pairs/ranking")

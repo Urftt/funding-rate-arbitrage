@@ -82,6 +82,9 @@ def create_dashboard_app(lifespan: Any = None) -> FastAPI:
     # Market cap service for tier classification (Phase 10) -- wired by main.py lifespan
     app.state.market_cap_service = None
 
+    # Decision engine for decision context (Phase 11) -- wired by main.py lifespan
+    app.state.decision_engine = None
+
     # Register routers
     app.include_router(pages.router)
     app.include_router(api.router, prefix="/api")

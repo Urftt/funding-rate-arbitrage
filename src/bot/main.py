@@ -60,6 +60,7 @@ from bot.position.manager import PositionManager
 from bot.position.sizing import PositionSizer
 from bot.risk.emergency import EmergencyController
 from bot.risk.manager import RiskManager
+from bot.analytics.decision_engine import DecisionEngine
 from bot.analytics.pair_analyzer import PairAnalyzer
 from bot.data.market_cap import MarketCapService
 from bot.position.dynamic_sizer import DynamicSizer
@@ -302,6 +303,15 @@ async def lifespan(app: FastAPI):
     app.state.market_cap_service = MarketCapService(
         api_key=os.environ.get("COINGECKO_API_KEY"),
     )
+
+    # Wire decision engine for decision context (Phase 11)
+    if components.get("data_store") is not None:
+        app.state.decision_engine = DecisionEngine(
+            pair_analyzer=app.state.pair_analyzer,
+            signal_engine=components.get("signal_engine"),
+            funding_monitor=components.get("funding_monitor"),
+            data_store=components.get("data_store"),
+        )
 
     # Set up SIGUSR1 for emergency stop only.
     # SIGINT/SIGTERM are handled by uvicorn -> lifespan cleanup stops orchestrator.
