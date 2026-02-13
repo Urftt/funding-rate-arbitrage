@@ -55,7 +55,15 @@ The bot correctly identifies funding rate opportunities and executes delta-neutr
 
 ### Active
 
-(No active requirements — next milestone not yet planned)
+## Current Milestone: v1.2 Strategy Discovery
+
+**Goal:** Enable learning-driven strategy development through historical pair analysis, profitability visualization, and iterative backtesting — so the user can build intuition about what works before committing capital.
+
+**Target features:**
+- Pair Explorer: Browse top ~20 pairs by market cap with funding rate history, distribution stats, and net yield calculations
+- Trade Replay: Enhanced backtesting showing individual simulated trades with entry/exit reasons, holding periods, and fee-adjusted P&L
+- Strategy Builder: Tweak parameters and test across selected pairs, comparing configurations to find consistent profitability
+- Decision View: Summary dashboard that answers "should I turn this on?" with historical evidence
 
 ### Out of Scope
 
@@ -71,7 +79,7 @@ The bot correctly identifies funding rate opportunities and executes delta-neutr
 
 ## Context
 
-- **Shipped:** v1.0 MVP (2026-02-11) + v1.1 Strategy Intelligence (2026-02-12)
+- **Shipped:** v1.0 MVP (2026-02-11) + v1.1 Strategy Intelligence (2026-02-12) + v1.2 Strategy Discovery (in progress)
 - **Codebase:** 9,540 lines of Python + 1,320 lines of HTML + 6,246 lines of tests across ~100 files
 - **Tech stack:** Python 3.12, ccxt (Bybit), FastAPI, HTMX, Tailwind CSS, Chart.js, structlog, asyncio, Decimal arithmetic, SQLite (WAL mode)
 - **Architecture:** Orchestrator pattern with dependency injection, swappable executor (paper/live), optional signal engine, dynamic sizer, signal-based emergency stop
@@ -112,4 +120,4 @@ The bot correctly identifies funding rate opportunities and executes delta-neutr
 | Linear interpolation for dynamic sizing | Simplest mapping from signal score to allocation | ✓ Good — configurable, backtestable |
 
 ---
-*Last updated: 2026-02-12 after v1.1 milestone completion*
+*Last updated: 2026-02-13 after v1.2 milestone start*

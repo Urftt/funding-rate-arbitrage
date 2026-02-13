@@ -2,19 +2,18 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-02-12)
+See: .planning/PROJECT.md (updated 2026-02-13)
 
 **Core value:** The bot correctly identifies funding rate opportunities and executes delta-neutral positions that collect funding payments without taking directional risk.
-**Current focus:** Planning next milestone
+**Current focus:** v1.2 Strategy Discovery
 
 ## Current Position
 
-Milestone: v1.1 Strategy Intelligence -- SHIPPED
-Phase: All complete (7 phases, 26 plans across v1.0 + v1.1)
-Status: Milestone v1.1 archived, ready for next milestone planning
-Last activity: 2026-02-12 -- v1.1 milestone completion
-
-Progress: [████████████████████] 100% (v1.0 + v1.1 complete)
+Milestone: v1.2 Strategy Discovery
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-02-13 — Milestone v1.2 started
 
 ## Performance Metrics
 
@@ -58,10 +57,13 @@ None.
 - Bybit fee structures need verification (carried from v1.0)
 - Look-ahead bias risk in backtesting (predicted vs settled funding rates differ)
 - Funding rate trend indicators may produce false signals (mean-reverting series)
+- User has no experience with funding rate arbitrage — system must teach through data exploration
+- Current dashboard shows data but doesn't help make decisions (no context, no "is this good?")
+- Top ~20 market cap pairs preferred — filter out noise from small/illiquid coins
 
 ## Session Continuity
 
-Last session: 2026-02-12
-Stopped at: v1.1 milestone archived and tagged
+Last session: 2026-02-13
+Stopped at: v1.2 milestone initialization
 Resume file: None
-Next step: /gsd:new-milestone to plan v1.2 or next version
+Next step: Define requirements → Create roadmap
