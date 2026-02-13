@@ -54,12 +54,11 @@ See `.planning/milestones/v1.1-ROADMAP.md` for full details.
   3. User can switch between date ranges (7d, 30d, 90d, all) and the ranking table and charts update accordingly
   4. User can see annualized yield figures that account for trading fees, with per-period net yield visible for context
   5. Pairs with insufficient data are flagged or excluded so rankings are not misleading
-**Plans**: TBD
+**Plans:** 2 plans
 
 Plans:
-- [ ] 08-01: PairAnalyzer service and pair explorer page
-- [ ] 08-02: Time series chart and date range filtering
-- [ ] 08-03: Fee-adjusted yield calculations
+- [ ] 08-01: PairAnalyzer service and API endpoints
+- [ ] 08-02: Pair explorer page with ranking table, time series chart, and date range filtering
 
 ### Phase 9: Trade Replay
 **Goal**: User can inspect individual simulated trades from backtest results to understand entry/exit reasoning, holding periods, and fee-adjusted profitability
@@ -126,7 +125,7 @@ Phases execute in numeric order: 8 → 9 → 10 → 11
 | 5. Signal Analysis & Integration | v1.1 | 3/3 | Complete | 2026-02-12 |
 | 6. Backtest Engine | v1.1 | 4/4 | Complete | 2026-02-12 |
 | 7. Dynamic Position Sizing | v1.1 | 2/2 | Complete | 2026-02-12 |
-| 8. Pair Analysis Foundation | v1.2 | 0/3 | Not started | - |
+| 8. Pair Analysis Foundation | v1.2 | 0/2 | Not started | - |
 | 9. Trade Replay | v1.2 | 0/3 | Not started | - |
 | 10. Strategy Builder & Visualization | v1.2 | 0/3 | Not started | - |
 | 11. Decision Context | v1.2 | 0/2 | Not started | - |
