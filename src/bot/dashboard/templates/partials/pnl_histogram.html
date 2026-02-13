@@ -1,0 +1,78 @@
+<div id="pnl-histogram-section" class="hidden bg-dash-card rounded-lg border border-dash-border p-4">
+    <h3 class="text-white font-semibold mb-2">P&L Distribution</h3>
+    <div style="position: relative; height: 250px;">
+        <canvas id="pnl-histogram-chart"></canvas>
+    </div>
+</div>
+
+<script>
+/**
+ * Render a P&L distribution histogram as a bar chart.
+ *
+ * @param {Object|null} histogramData - Object with bins (string[]) and counts (number[]).
+ */
+function renderPnlHistogram(histogramData) {
+    var section = document.getElementById('pnl-histogram-section');
+    if (!histogramData || !histogramData.bins || histogramData.bins.length === 0) {
+        section.classList.add('hidden');
+        return;
+    }
+
+    section.classList.remove('hidden');
+    var ctx = document.getElementById('pnl-histogram-chart').getContext('2d');
+
+    if (window._pnlHistChart) { window._pnlHistChart.destroy(); }
+
+    // Color bars green for positive bins, red for negative
+    var barColors = histogramData.bins.map(function(bin) {
+        return parseFloat(bin.replace('$', '')) >= 0 ? '#22c55e' : '#ef4444';
+    });
+
+    window._pnlHistChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: histogramData.bins,
+            datasets: [{
+                label: 'Trade Count',
+                data: histogramData.counts,
+                backgroundColor: barColors,
+                borderColor: barColors.map(function(c) {
+                    return c === '#22c55e' ? '#166534' : '#991b1b';
+                }),
+                borderWidth: 1,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: { duration: 0 },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        title: function(items) { return 'P&L Range: ' + items[0].label; },
+                        label: function(context) { return context.parsed.y + ' trade(s)'; }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    ticks: { color: '#6b7280', maxRotation: 45 },
+                    grid: { color: '#334155' },
+                    title: { display: true, text: 'Net P&L', color: '#9ca3af' }
+                },
+                y: {
+                    ticks: {
+                        color: '#6b7280',
+                        stepSize: 1,
+                        callback: function(v) { return Number.isInteger(v) ? v : ''; }
+                    },
+                    grid: { color: '#334155' },
+                    title: { display: true, text: 'Trade Count', color: '#9ca3af' },
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+}
+</script>

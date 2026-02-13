@@ -34,6 +34,9 @@
         <!-- Trade Log (shown for single backtest) -->
         {% include "partials/trade_log.html" %}
 
+        <!-- P&L Distribution Histogram (shown for single backtest) -->
+        {% include "partials/pnl_histogram.html" %}
+
         <!-- Comparison Table (shown for compare mode) -->
         <div id="comparison-section" class="hidden">
             <div class="bg-dash-card rounded-lg border border-dash-border p-4">
@@ -85,6 +88,7 @@
     const tradeLogEmpty = document.getElementById('trade-log-empty');
     const tradeStatsSection = document.getElementById('trade-stats-section');
     const tradeStatsCards = document.getElementById('trade-stats-cards');
+    const pnlHistSection = document.getElementById('pnl-histogram-section');
 
     let pollInterval = null;
 
@@ -151,6 +155,7 @@
         heatmapSection.classList.add('hidden');
         tradeLogSection.classList.add('hidden');
         tradeStatsSection.classList.add('hidden');
+        pnlHistSection.classList.add('hidden');
         metricsCards.innerHTML = '';
         comparisonBody.innerHTML = '';
         tradeLogBody.innerHTML = '';
@@ -327,13 +332,16 @@
     function displaySingleResult(result) {
         displaySingleMetrics(result.metrics);
 
-        // Render equity curve
+        // Render equity curve with trade markers
         if (result.equity_curve && result.equity_curve.length > 0) {
             equitySection.classList.remove('hidden');
-            renderEquityCurve(result.equity_curve, result.config.strategy_mode + ' strategy', '#22c55e');
+            renderEquityCurve(result.equity_curve, result.config.strategy_mode + ' strategy', '#22c55e', result.trades);
         } else {
             equitySection.classList.add('hidden');
         }
+
+        // Render P&L histogram
+        renderPnlHistogram(result.pnl_histogram);
 
         comparisonSection.classList.add('hidden');
         heatmapSection.classList.add('hidden');
@@ -385,6 +393,7 @@
         heatmapSection.classList.add('hidden');
         tradeLogSection.classList.add('hidden');
         tradeStatsSection.classList.add('hidden');
+        pnlHistSection.classList.add('hidden');
         resultsEl.classList.remove('hidden');
     }
 
@@ -401,11 +410,12 @@
             });
             displaySingleMetrics(sorted[0].result.metrics);
 
-            // Render best equity curve if available
+            // Render best equity curve if available (with trades if present)
             const bestEquity = sorted[0].result.equity_curve;
+            var bestTrades = sorted[0].result.trades || [];
             if (bestEquity && bestEquity.length > 0) {
                 equitySection.classList.remove('hidden');
-                renderEquityCurve(bestEquity, 'Best params', '#22c55e');
+                renderEquityCurve(bestEquity, 'Best params', '#22c55e', bestTrades);
             } else {
                 equitySection.classList.add('hidden');
             }
@@ -418,6 +428,7 @@
         comparisonSection.classList.add('hidden');
         tradeLogSection.classList.add('hidden');
         tradeStatsSection.classList.add('hidden');
+        pnlHistSection.classList.add('hidden');
         resultsEl.classList.remove('hidden');
     }
 

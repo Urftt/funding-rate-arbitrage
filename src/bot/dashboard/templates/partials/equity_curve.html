@@ -1,6 +1,8 @@
 <div id="equity-curve-section" class="bg-dash-card rounded-lg border border-dash-border p-4">
     <h3 class="text-white font-semibold mb-2">Equity Curve</h3>
-    <canvas id="equity-chart" height="300"></canvas>
+    <div style="position: relative; height: 300px;">
+        <canvas id="equity-chart"></canvas>
+    </div>
 </div>
 
 <script>
@@ -10,8 +12,9 @@
  * @param {Array} equityData - Array of {timestamp_ms, equity} objects.
  * @param {string} label - Dataset label (e.g., "Simple" or "Composite").
  * @param {string} color - Line color hex string.
+ * @param {Array} [trades] - Optional array of trade objects with entry_time_ms and exit_time_ms.
  */
-function renderEquityCurve(equityData, label, color) {
+function renderEquityCurve(equityData, label, color, trades) {
     const ctx = document.getElementById('equity-chart').getContext('2d');
 
     // Destroy previous chart if it exists
@@ -25,25 +28,78 @@ function renderEquityCurve(equityData, label, color) {
     });
     const values = equityData.map(p => parseFloat(p.equity));
 
+    // Build timestamp-to-index lookup for trade markers
+    var tsToIndex = {};
+    equityData.forEach(function(p, idx) { tsToIndex[p.timestamp_ms] = idx; });
+
+    // Build entry and exit point arrays from trades (if provided and non-empty)
+    var entryPoints = [];
+    var exitPoints = [];
+    if (trades && trades.length > 0) {
+        trades.forEach(function(t) {
+            var entryIdx = tsToIndex[t.entry_time_ms];
+            if (entryIdx !== undefined) {
+                entryPoints.push({ x: entryIdx, y: values[entryIdx] });
+            }
+            var exitIdx = tsToIndex[t.exit_time_ms];
+            if (exitIdx !== undefined) {
+                exitPoints.push({ x: exitIdx, y: values[exitIdx] });
+            }
+        });
+    }
+
+    // Build datasets: equity line + optional scatter markers
+    var datasets = [{
+        label: label || 'Equity',
+        data: values,
+        borderColor: color || '#22c55e',
+        backgroundColor: (color || '#22c55e') + '1a',
+        borderWidth: 2,
+        fill: true,
+        tension: 0.3,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+    }];
+
+    if (entryPoints.length > 0) {
+        datasets.push({
+            type: 'scatter',
+            label: 'Entry',
+            data: entryPoints,
+            pointStyle: 'triangle',
+            pointRadius: 7,
+            pointHoverRadius: 10,
+            backgroundColor: '#22c55e',
+            borderColor: '#166534',
+            borderWidth: 1,
+            showLine: false,
+        });
+    }
+
+    if (exitPoints.length > 0) {
+        datasets.push({
+            type: 'scatter',
+            label: 'Exit',
+            data: exitPoints,
+            pointStyle: 'triangle',
+            rotation: 180,
+            pointRadius: 7,
+            pointHoverRadius: 10,
+            backgroundColor: '#ef4444',
+            borderColor: '#991b1b',
+            borderWidth: 1,
+            showLine: false,
+        });
+    }
+
     window._equityChart = new Chart(ctx, {
         type: 'line',
-        data: {
-            labels: labels,
-            datasets: [{
-                label: label || 'Equity',
-                data: values,
-                borderColor: color || '#22c55e',
-                backgroundColor: (color || '#22c55e') + '1a',
-                borderWidth: 2,
-                fill: true,
-                tension: 0.3,
-                pointRadius: 0,
-                pointHoverRadius: 4,
-            }]
-        },
+        data: { labels: labels, datasets: datasets },
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            animation: { duration: 0 },
+            resizeDelay: 100,
             plugins: {
                 legend: {
                     labels: { color: '#9ca3af' }
@@ -51,8 +107,12 @@ function renderEquityCurve(equityData, label, color) {
                 tooltip: {
                     mode: 'index',
                     intersect: false,
+                    position: 'nearest',
                     callbacks: {
                         label: function(context) {
+                            if (context.dataset.type === 'scatter') {
+                                return context.dataset.label + ' at $' + context.parsed.y.toFixed(2);
+                            }
                             return context.dataset.label + ': $' + context.parsed.y.toFixed(2);
                         }
                     }
@@ -127,6 +187,8 @@ function renderComparisonEquityCurve(simpleData, compositeData) {
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            animation: { duration: 0 },
+            resizeDelay: 100,
             plugins: {
                 legend: {
                     labels: { color: '#9ca3af' }
@@ -134,6 +196,7 @@ function renderComparisonEquityCurve(simpleData, compositeData) {
                 tooltip: {
                     mode: 'index',
                     intersect: false,
+                    position: 'nearest',
                     callbacks: {
                         label: function(context) {
                             return context.dataset.label + ': $' + context.parsed.y.toFixed(2);
