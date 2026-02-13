@@ -37,7 +37,7 @@ See `.planning/milestones/v1.1-ROADMAP.md` for full details.
 
 **Key constraints:** All features are read-only on existing data. Zero new Python dependencies. One CDN addition (boxplot plugin). One external API (CoinGecko free tier). No trading engine changes.
 
-- [ ] **Phase 8: Pair Analysis Foundation** - User can explore and compare pairs by historical funding rate profitability
+- [x] **Phase 8: Pair Analysis Foundation** - User can explore and compare pairs by historical funding rate profitability (completed 2026-02-13)
 - [ ] **Phase 9: Trade Replay** - User can inspect individual backtest trades to understand why strategies win or lose
 - [ ] **Phase 10: Strategy Builder & Visualization** - User can test strategies across multiple pairs and analyze rate distributions
 - [ ] **Phase 11: Decision Context** - User can see actionable recommendations backed by historical evidence
@@ -57,8 +57,8 @@ See `.planning/milestones/v1.1-ROADMAP.md` for full details.
 **Plans:** 2 plans
 
 Plans:
-- [ ] 08-01: PairAnalyzer service and API endpoints
-- [ ] 08-02: Pair explorer page with ranking table, time series chart, and date range filtering
+- [x] 08-01: PairAnalyzer service and API endpoints
+- [x] 08-02: Pair explorer page with ranking table, time series chart, and date range filtering
 
 ### Phase 9: Trade Replay
 **Goal**: User can inspect individual simulated trades from backtest results to understand entry/exit reasoning, holding periods, and fee-adjusted profitability
@@ -125,7 +125,7 @@ Phases execute in numeric order: 8 → 9 → 10 → 11
 | 5. Signal Analysis & Integration | v1.1 | 3/3 | Complete | 2026-02-12 |
 | 6. Backtest Engine | v1.1 | 4/4 | Complete | 2026-02-12 |
 | 7. Dynamic Position Sizing | v1.1 | 2/2 | Complete | 2026-02-12 |
-| 8. Pair Analysis Foundation | v1.2 | 0/2 | Not started | - |
+| 8. Pair Analysis Foundation | v1.2 | 2/2 | Complete | 2026-02-13 |
 | 9. Trade Replay | v1.2 | 0/3 | Not started | - |
 | 10. Strategy Builder & Visualization | v1.2 | 0/3 | Not started | - |
 | 11. Decision Context | v1.2 | 0/2 | Not started | - |
