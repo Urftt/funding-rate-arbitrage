@@ -1,0 +1,21 @@
+<div id="trade-log-section" class="hidden bg-dash-card rounded-lg border border-dash-border p-4">
+    <h3 class="text-white font-semibold mb-3">Trade Log</h3>
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="text-gray-400 border-b border-dash-border">
+                    <th class="text-left py-2 px-2">#</th>
+                    <th class="text-left py-2 px-2">Entry</th>
+                    <th class="text-left py-2 px-2">Exit</th>
+                    <th class="text-right py-2 px-2">Net P&amp;L</th>
+                    <th class="text-right py-2 px-2">Periods</th>
+                    <th class="text-left py-2 px-2">Result</th>
+                </tr>
+            </thead>
+            <tbody id="trade-log-body">
+                <!-- Populated by JS -->
+            </tbody>
+        </table>
+    </div>
+    <p id="trade-log-empty" class="hidden text-gray-500 text-sm text-center py-4">No trades in this backtest.</p>
+</div>
