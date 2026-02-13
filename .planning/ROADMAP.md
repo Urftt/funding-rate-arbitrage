@@ -4,7 +4,7 @@
 
 - ✅ **v1.0 MVP** -- Phases 1-3 (shipped 2026-02-11)
 - ✅ **v1.1 Strategy Intelligence** -- Phases 4-7 (shipped 2026-02-12)
-- 🚧 **v1.2 Strategy Discovery** -- Phases 8-11 (in progress)
+- ✅ **v1.2 Strategy Discovery** -- Phases 8-11 (shipped 2026-02-13)
 
 ## Phases
 
@@ -31,7 +31,7 @@ See `.planning/milestones/v1.1-ROADMAP.md` for full details.
 
 </details>
 
-### 🚧 v1.2 Strategy Discovery (In Progress)
+### ✅ v1.2 Strategy Discovery (Shipped 2026-02-13)
 
 **Milestone Goal:** Enable learning-driven strategy development through historical pair analysis, profitability visualization, and iterative backtesting -- so the user can build intuition about what works before committing capital.
 
@@ -40,7 +40,7 @@ See `.planning/milestones/v1.1-ROADMAP.md` for full details.
 - [x] **Phase 8: Pair Analysis Foundation** - User can explore and compare pairs by historical funding rate profitability (completed 2026-02-13)
 - [x] **Phase 9: Trade Replay** - User can inspect individual backtest trades to understand why strategies win or lose (completed 2026-02-13)
 - [x] **Phase 10: Strategy Builder & Visualization** - User can test strategies across multiple pairs and analyze rate distributions (completed 2026-02-13)
-- [ ] **Phase 11: Decision Context** - User can see actionable recommendations backed by historical evidence
+- [x] **Phase 11: Decision Context** - User can see actionable recommendations backed by historical evidence (completed 2026-02-13)
 
 ## Phase Details
 
@@ -107,8 +107,8 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
-- [ ] 11-01-PLAN.md -- DecisionEngine service, API endpoints, and wiring
-- [ ] 11-02-PLAN.md -- Enhanced funding rates panel, decision summary page, glossary tooltips
+- [x] 11-01: DecisionEngine service, API endpoints, and wiring
+- [x] 11-02: Enhanced funding rates panel, decision summary page, glossary tooltips
 
 ## Progress
 
@@ -128,4 +128,4 @@ Phases execute in numeric order: 8 → 9 → 10 → 11
 | 8. Pair Analysis Foundation | v1.2 | 2/2 | Complete | 2026-02-13 |
 | 9. Trade Replay | v1.2 | 3/3 | Complete | 2026-02-13 |
 | 10. Strategy Builder & Visualization | v1.2 | 3/3 | Complete | 2026-02-13 |
-| 11. Decision Context | v1.2 | 0/2 | Not started | - |
+| 11. Decision Context | v1.2 | 2/2 | Complete | 2026-02-13 |
