@@ -511,3 +511,51 @@ class SweepResult:
                 for params, result in self.results
             ],
         }
+
+
+@dataclass
+class MultiPairResult:
+    """Results from running the same config across multiple pairs."""
+
+    symbols: list[str]
+    base_config: BacktestConfig
+    results: list[tuple[str, BacktestResult | None, str | None]]
+    # Each tuple: (symbol, result_or_None, error_or_None)
+
+    @property
+    def profitable_count(self) -> int:
+        """Count of pairs with positive net P&L."""
+        return sum(1 for _, r, e in self.results if r and r.metrics.net_pnl > Decimal("0"))
+
+    @property
+    def total_count(self) -> int:
+        """Total number of pairs tested."""
+        return len(self.results)
+
+    @property
+    def successful_count(self) -> int:
+        """Count of pairs that completed without error."""
+        return sum(1 for _, r, _ in self.results if r is not None)
+
+    def to_dict(self) -> dict:
+        """Serialize to dict for JSON output.
+
+        Returns:
+            Dict with symbols, config, results array, and aggregate counts.
+        """
+        items = []
+        for symbol, result, error in self.results:
+            if error:
+                items.append({"symbol": symbol, "error": error, "metrics": None})
+            elif result:
+                items.append({"symbol": symbol, "error": None, "metrics": result.to_dict()["metrics"]})
+            else:
+                items.append({"symbol": symbol, "error": "Unknown error", "metrics": None})
+        return {
+            "symbols": self.symbols,
+            "config": self.base_config.to_dict(),
+            "results": items,
+            "profitable_count": self.profitable_count,
+            "total_count": self.total_count,
+            "successful_count": self.successful_count,
+        }

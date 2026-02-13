@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from bot.backtest.engine import BacktestEngine
-from bot.backtest.models import BacktestConfig, BacktestMetrics, BacktestResult
+from bot.backtest.models import BacktestConfig, BacktestMetrics, BacktestResult, MultiPairResult
 from bot.config import BacktestSettings, FeeSettings
 from bot.data.database import HistoricalDatabase
 from bot.data.store import HistoricalDataStore
@@ -182,6 +182,60 @@ async def run_comparison(
     )
 
     return simple_result, composite_result
+
+
+async def run_multi_pair(
+    symbols: list[str],
+    base_config: BacktestConfig,
+    db_path: str = "data/historical.db",
+    fee_settings: FeeSettings | None = None,
+    backtest_settings: BacktestSettings | None = None,
+) -> MultiPairResult:
+    """Run the same backtest config across multiple pairs sequentially.
+
+    Each pair is run independently. Failures on individual pairs are caught
+    and recorded as errors without aborting the remaining pairs. Results
+    are compacted (equity curve and trades discarded) for memory efficiency.
+
+    Args:
+        symbols: List of trading pair symbols to test.
+        base_config: Base backtest configuration (symbol field will be overridden).
+        db_path: Path to the SQLite historical database.
+        fee_settings: Fee rates. Defaults to standard Bybit Non-VIP rates.
+        backtest_settings: Backtest-specific settings.
+
+    Returns:
+        MultiPairResult with per-pair results and aggregate counts.
+    """
+    if fee_settings is None:
+        fee_settings = FeeSettings()
+    if backtest_settings is None:
+        backtest_settings = BacktestSettings()
+
+    logger.info("run_multi_pair_starting", symbols=symbols, total=len(symbols))
+    start_time = time.monotonic()
+    results = []
+
+    for symbol in symbols:
+        try:
+            config = base_config.with_overrides(symbol=symbol)
+            result = await run_backtest(config, db_path, fee_settings, backtest_settings)
+            # Memory management: only keep metrics, discard equity curve and trades
+            compact = BacktestResult(
+                config=result.config,
+                equity_curve=[],
+                trades=[],
+                trade_stats=result.trade_stats,
+                metrics=result.metrics,
+            )
+            results.append((symbol, compact, None))
+        except Exception as e:
+            logger.warning("multi_pair_single_error", symbol=symbol, error=str(e))
+            results.append((symbol, None, str(e)))
+
+    elapsed = time.monotonic() - start_time
+    logger.info("run_multi_pair_complete", total=len(symbols), elapsed_seconds=round(elapsed, 2))
+    return MultiPairResult(symbols=symbols, base_config=base_config, results=results)
 
 
 async def run_backtest_cli(
