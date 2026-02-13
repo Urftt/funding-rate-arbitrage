@@ -75,4 +75,262 @@
 {% endblock %}
 
 {% block scripts %}
+<script>
+(function() {
+    'use strict';
+
+    // State
+    let currentRange = 'all';
+    let currentSymbol = null;
+
+    // DOM elements
+    const loadingEl = document.getElementById('ranking-loading');
+    const rankingSection = document.getElementById('ranking-section');
+    const rankingBody = document.getElementById('ranking-body');
+    const emptyState = document.getElementById('empty-state');
+    const detailSection = document.getElementById('pair-detail');
+    const detailTitle = document.getElementById('detail-title');
+    const detailStats = document.getElementById('detail-stats');
+    const chartContainer = document.getElementById('chart-container');
+
+    /**
+     * Format a Decimal string value as a rate percentage (4 decimal places).
+     * @param {string} val - Decimal string from API.
+     * @returns {string} Formatted percentage string.
+     */
+    function fmtRate(val) {
+        return (parseFloat(val) * 100).toFixed(4) + '%';
+    }
+
+    /**
+     * Format a Decimal string value as a percentage (1 decimal place).
+     * @param {string} val - Decimal string from API.
+     * @returns {string} Formatted percentage string.
+     */
+    function fmtPct(val) {
+        return (parseFloat(val) * 100).toFixed(1) + '%';
+    }
+
+    /**
+     * Get the Tailwind color class based on whether the value is positive or negative.
+     * @param {string} val - Decimal string from API.
+     * @returns {string} Tailwind text color class.
+     */
+    function yieldColor(val) {
+        return parseFloat(val) >= 0 ? 'text-green-400' : 'text-red-400';
+    }
+
+    /**
+     * Create a metric card HTML string for the detail panel.
+     * @param {string} label - Metric name.
+     * @param {string} value - Formatted display value.
+     * @param {string} colorClass - Tailwind text color class.
+     * @returns {string} HTML string for the card.
+     */
+    function metricCard(label, value, colorClass) {
+        return '<div class="bg-dash-bg rounded-lg border border-dash-border p-3">' +
+               '<p class="text-xs text-gray-400 mb-1">' + label + '</p>' +
+               '<p class="text-lg font-semibold ' + (colorClass || 'text-white') + '">' + value + '</p>' +
+               '</div>';
+    }
+
+    /**
+     * Fetch and render the pair ranking table.
+     * @param {string} range - Date range filter: "7d", "30d", "90d", or "all".
+     */
+    function fetchRanking(range) {
+        currentRange = range;
+
+        // Show loading, hide other sections
+        loadingEl.classList.remove('hidden');
+        rankingSection.classList.add('hidden');
+        emptyState.classList.add('hidden');
+
+        fetch('/api/pairs/ranking?range=' + encodeURIComponent(range))
+            .then(function(resp) { return resp.json(); })
+            .then(function(data) {
+                loadingEl.classList.add('hidden');
+
+                if (!Array.isArray(data) || data.length === 0) {
+                    emptyState.classList.remove('hidden');
+                    return;
+                }
+
+                var rows = data.map(function(pair, idx) {
+                    var recordsCell = pair.record_count;
+                    if (!pair.has_sufficient_data) {
+                        recordsCell += '<span class="ml-1 text-xs bg-yellow-600/30 text-yellow-400 px-1.5 py-0.5 rounded">Low data</span>';
+                    }
+
+                    return '<tr class="border-b border-dash-border hover:bg-dash-bg/50">' +
+                        '<td class="py-2 px-2 text-gray-500">' + (idx + 1) + '</td>' +
+                        '<td class="py-2 px-2"><span class="cursor-pointer text-blue-400 hover:text-blue-300" onclick="window._showDetail(\'' + pair.symbol.replace(/'/g, "\\'") + '\')">' + pair.symbol + '</span></td>' +
+                        '<td class="text-right py-2 px-2 font-mono">' + recordsCell + '</td>' +
+                        '<td class="text-right py-2 px-2 font-mono">' + fmtRate(pair.avg_rate) + '</td>' +
+                        '<td class="text-right py-2 px-2 font-mono">' + fmtRate(pair.median_rate) + '</td>' +
+                        '<td class="text-right py-2 px-2 font-mono">' + fmtRate(pair.std_dev) + '</td>' +
+                        '<td class="text-right py-2 px-2 font-mono">' + fmtPct(pair.pct_positive) + '</td>' +
+                        '<td class="text-right py-2 px-2 font-mono ' + yieldColor(pair.net_yield_per_period) + '">' + fmtRate(pair.net_yield_per_period) + '</td>' +
+                        '<td class="text-right py-2 px-2 font-mono ' + yieldColor(pair.annualized_yield) + '">' + fmtRate(pair.annualized_yield) + '</td>' +
+                        '</tr>';
+                });
+
+                rankingBody.innerHTML = rows.join('');
+                rankingSection.classList.remove('hidden');
+            })
+            .catch(function(err) {
+                loadingEl.classList.add('hidden');
+                emptyState.querySelector('p').textContent = 'Error loading pair data: ' + err.message;
+                emptyState.classList.remove('hidden');
+            });
+    }
+
+    /**
+     * Show the per-pair detail panel with stats cards and funding rate chart.
+     * Attached to window so onclick from innerHTML-built rows can call it.
+     * @param {string} symbol - Trading pair symbol.
+     */
+    window._showDetail = function(symbol) {
+        currentSymbol = symbol;
+
+        fetch('/api/pairs/' + encodeURIComponent(symbol) + '/stats?range=' + encodeURIComponent(currentRange))
+            .then(function(resp) { return resp.json(); })
+            .then(function(data) {
+                if (data.error) {
+                    return;
+                }
+
+                var stats = data.stats;
+                detailTitle.textContent = data.symbol;
+
+                detailStats.innerHTML =
+                    metricCard('Avg Rate', fmtRate(stats.avg_rate), 'text-white') +
+                    metricCard('Median Rate', fmtRate(stats.median_rate), 'text-white') +
+                    metricCard('Std Dev', fmtRate(stats.std_dev), 'text-white') +
+                    metricCard('% Positive', fmtPct(stats.pct_positive), 'text-white') +
+                    metricCard('Net Yield/Period', fmtRate(stats.net_yield_per_period), yieldColor(stats.net_yield_per_period)) +
+                    metricCard('Ann. Yield', fmtRate(stats.annualized_yield), yieldColor(stats.annualized_yield)) +
+                    metricCard('Records', stats.record_count, 'text-white');
+
+                if (data.time_series && data.time_series.length > 0) {
+                    renderFundingRateChart(data.time_series);
+                } else {
+                    chartContainer.classList.add('hidden');
+                }
+
+                detailSection.classList.remove('hidden');
+                detailSection.scrollIntoView({ behavior: 'smooth' });
+            })
+            .catch(function(err) {
+                // Silently handle detail fetch errors
+            });
+    };
+
+    /**
+     * Render a funding rate time series chart using Chart.js.
+     * Follows the equity_curve.html pattern with adapted styling for rates.
+     * @param {Array} timeSeries - Array of {timestamp_ms, funding_rate} objects.
+     */
+    function renderFundingRateChart(timeSeries) {
+        var ctx = document.getElementById('funding-rate-chart').getContext('2d');
+
+        // Destroy previous chart if exists
+        if (window._fundingChart) {
+            window._fundingChart.destroy();
+        }
+
+        var labels = timeSeries.map(function(p) {
+            var d = new Date(p.timestamp_ms);
+            return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        });
+        var values = timeSeries.map(function(p) {
+            return parseFloat(p.funding_rate) * 100;
+        });
+
+        window._fundingChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Funding Rate',
+                    data: values,
+                    borderColor: '#3b82f6',
+                    backgroundColor: '#3b82f61a',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: { duration: 0 },
+                plugins: {
+                    legend: {
+                        labels: { color: '#9ca3af' }
+                    },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        callbacks: {
+                            label: function(context) {
+                                return 'Rate: ' + context.parsed.y.toFixed(4) + '%';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: { color: '#6b7280', maxTicksLimit: 15 },
+                        grid: { color: '#334155' }
+                    },
+                    y: {
+                        ticks: {
+                            color: '#6b7280',
+                            callback: function(v) { return v + '%'; }
+                        },
+                        grid: { color: '#334155' }
+                    }
+                }
+            }
+        });
+
+        chartContainer.classList.remove('hidden');
+    }
+
+    // Date range button click handlers
+    var rangeButtons = document.querySelectorAll('[data-range]');
+    rangeButtons.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            // Update button styles
+            rangeButtons.forEach(function(b) {
+                b.className = 'px-3 py-1.5 text-sm rounded bg-dash-card text-gray-400 border border-dash-border hover:text-white';
+            });
+            btn.className = 'px-3 py-1.5 text-sm rounded bg-blue-600 text-white';
+
+            fetchRanking(btn.dataset.range);
+
+            // Also refresh detail panel if open
+            if (currentSymbol && !detailSection.classList.contains('hidden')) {
+                window._showDetail(currentSymbol);
+            }
+        });
+    });
+
+    // Close detail button
+    document.getElementById('close-detail').addEventListener('click', function() {
+        detailSection.classList.add('hidden');
+        currentSymbol = null;
+        if (window._fundingChart) {
+            window._fundingChart.destroy();
+            window._fundingChart = null;
+        }
+    });
+
+    // Initial load
+    fetchRanking('all');
+})();
+</script>
 {% endblock %}
