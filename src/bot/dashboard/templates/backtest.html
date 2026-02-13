@@ -56,6 +56,28 @@
 
         <!-- Parameter Heatmap (shown for sweep mode) -->
         {% include "partials/param_heatmap.html" %}
+
+        <!-- Multi-Pair Comparison Table (shown for multi mode) -->
+        <div id="multi-pair-section" class="hidden">
+            <div class="bg-dash-card rounded-lg border border-dash-border p-4">
+                <h3 class="text-white font-semibold mb-1">Multi-Pair Results</h3>
+                <p class="text-sm text-gray-400 mb-3" id="multi-pair-summary"></p>
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="text-gray-400 border-b border-dash-border">
+                            <th class="text-left py-2 px-2">Pair</th>
+                            <th class="text-right py-2 px-2">Net P&L</th>
+                            <th class="text-right py-2 px-2">Sharpe</th>
+                            <th class="text-right py-2 px-2">Win Rate</th>
+                            <th class="text-right py-2 px-2">Trades</th>
+                            <th class="text-right py-2 px-2">Funding</th>
+                            <th class="text-right py-2 px-2">Fees</th>
+                        </tr>
+                    </thead>
+                    <tbody id="multi-pair-body"></tbody>
+                </table>
+            </div>
+        </div>
     </div>
 
     <!-- Loading Indicator -->
@@ -89,6 +111,10 @@
     const tradeStatsSection = document.getElementById('trade-stats-section');
     const tradeStatsCards = document.getElementById('trade-stats-cards');
     const pnlHistSection = document.getElementById('pnl-histogram-section');
+    const multiPairPanel = document.getElementById('multi-pair-panel');
+    const multiPairSection = document.getElementById('multi-pair-section');
+    const multiPairSummary = document.getElementById('multi-pair-summary');
+    const multiPairBody = document.getElementById('multi-pair-body');
 
     let pollInterval = null;
     let presetData = {};
@@ -152,6 +178,27 @@
         });
     });
 
+    // Show/hide multi-pair panel based on run mode selection
+    form.querySelectorAll('input[name="run_mode"]').forEach(function(radio) {
+        radio.addEventListener('change', function() {
+            multiPairPanel.classList.toggle('hidden', this.value !== 'multi');
+        });
+    });
+
+    // Wire select-all / deselect-all buttons for multi-pair checkboxes
+    var btnSelectAll = document.getElementById('btn-select-all');
+    var btnDeselectAll = document.getElementById('btn-deselect-all');
+    if (btnSelectAll) {
+        btnSelectAll.addEventListener('click', function() {
+            form.querySelectorAll('input[name="multi_symbols"]').forEach(function(cb) { cb.checked = true; });
+        });
+    }
+    if (btnDeselectAll) {
+        btnDeselectAll.addEventListener('click', function() {
+            form.querySelectorAll('input[name="multi_symbols"]').forEach(function(cb) { cb.checked = false; });
+        });
+    }
+
     /**
      * Collect form values into a JSON-serializable object.
      * @returns {Object} Form data with symbol, dates, strategy, run mode, and overrides.
@@ -167,6 +214,15 @@
         // Get run mode
         const runMode = form.querySelector('input[name="run_mode"]:checked');
         data.run_mode = runMode ? runMode.value : 'single';
+
+        // For multi mode, collect checked symbols instead of single symbol
+        if (data.run_mode === 'multi') {
+            var checked = [];
+            form.querySelectorAll('input[name="multi_symbols"]:checked').forEach(function(cb) {
+                checked.push(cb.value);
+            });
+            data.symbols = checked;
+        }
 
         // Collect optional numeric overrides (only if user entered a value)
         const optionalFields = [
@@ -190,7 +246,11 @@
      * @returns {string|null} Error message or null if valid.
      */
     function validateForm(data) {
-        if (!data.symbol) return 'Please enter a symbol.';
+        if (data.run_mode === 'multi') {
+            if (!data.symbols || data.symbols.length === 0) return 'Please select at least one pair for multi-pair backtest.';
+        } else {
+            if (!data.symbol) return 'Please enter a symbol.';
+        }
         if (!data.start_date) return 'Please select a start date.';
         if (!data.end_date) return 'Please select an end date.';
         if (data.start_date >= data.end_date) return 'End date must be after start date.';
@@ -216,10 +276,13 @@
         tradeLogSection.classList.add('hidden');
         tradeStatsSection.classList.add('hidden');
         pnlHistSection.classList.add('hidden');
+        multiPairSection.classList.add('hidden');
         metricsCards.innerHTML = '';
         comparisonBody.innerHTML = '';
         tradeLogBody.innerHTML = '';
         tradeStatsCards.innerHTML = '';
+        multiPairBody.innerHTML = '';
+        multiPairSummary.textContent = '';
     }
 
     /**
@@ -230,6 +293,7 @@
     function getEndpoint(runMode) {
         if (runMode === 'compare') return '/api/backtest/compare';
         if (runMode === 'sweep') return '/api/backtest/sweep';
+        if (runMode === 'multi') return '/api/backtest/multi';
         return '/api/backtest/run';
     }
 
@@ -493,9 +557,75 @@
     }
 
     /**
+     * Display results for a multi-pair backtest.
+     * Shows aggregate summary and comparison table sorted by net P&L.
+     * @param {Object} result - MultiPairResult.to_dict() output.
+     */
+    function displayMultiPairResult(result) {
+        // Aggregate summary card
+        var profitCount = result.profitable_count;
+        var totalCount = result.total_count;
+        var successCount = result.successful_count;
+        var summaryColor = profitCount > totalCount / 2 ? 'text-green-400' : 'text-yellow-400';
+
+        metricsCards.innerHTML =
+            metricCard('Profitable Pairs', profitCount + ' of ' + totalCount, summaryColor) +
+            metricCard('Successful Runs', successCount + ' of ' + totalCount, 'text-white') +
+            metricCard('Failed Runs', (totalCount - successCount), totalCount - successCount > 0 ? 'text-red-400' : 'text-gray-400');
+
+        multiPairSummary.textContent = profitCount + ' of ' + totalCount + ' pairs profitable';
+
+        // Sort results by net P&L descending (errors at end)
+        var sorted = result.results.slice().sort(function(a, b) {
+            if (a.metrics && b.metrics) {
+                return parseFloat(b.metrics.net_pnl) - parseFloat(a.metrics.net_pnl);
+            }
+            if (a.metrics) return -1;
+            if (b.metrics) return 1;
+            return 0;
+        });
+
+        // Build table rows
+        var html = '';
+        for (var i = 0; i < sorted.length; i++) {
+            var item = sorted[i];
+            if (item.error || !item.metrics) {
+                html += '<tr class="border-b border-dash-border">';
+                html += '<td class="py-2 px-2 text-gray-300">' + item.symbol + '</td>';
+                html += '<td colspan="6" class="py-2 px-2 text-gray-500 italic text-center">' + (item.error || 'No data') + '</td>';
+                html += '</tr>';
+            } else {
+                var m = item.metrics;
+                var pnl = parseFloat(m.net_pnl);
+                var pnlColor = pnl >= 0 ? 'text-green-400' : 'text-red-400';
+                html += '<tr class="border-b border-dash-border hover:bg-gray-800/50">';
+                html += '<td class="py-2 px-2 text-gray-200 font-medium">' + item.symbol + '</td>';
+                html += '<td class="py-2 px-2 text-right font-mono ' + pnlColor + '">' + fmtDollar(m.net_pnl) + '</td>';
+                html += '<td class="py-2 px-2 text-right text-gray-300 font-mono">' + fmtNum(m.sharpe_ratio) + '</td>';
+                html += '<td class="py-2 px-2 text-right text-gray-300">' + fmtPercent(m.win_rate) + '</td>';
+                html += '<td class="py-2 px-2 text-right text-gray-300">' + m.total_trades + '</td>';
+                html += '<td class="py-2 px-2 text-right text-blue-400 font-mono">' + fmtDollar(m.total_funding) + '</td>';
+                html += '<td class="py-2 px-2 text-right text-orange-400 font-mono">' + fmtDollar(m.total_fees) + '</td>';
+                html += '</tr>';
+            }
+        }
+        multiPairBody.innerHTML = html;
+
+        // Show multi-pair section, hide other mode-specific sections
+        multiPairSection.classList.remove('hidden');
+        equitySection.classList.add('hidden');
+        comparisonSection.classList.add('hidden');
+        heatmapSection.classList.add('hidden');
+        tradeLogSection.classList.add('hidden');
+        tradeStatsSection.classList.add('hidden');
+        pnlHistSection.classList.add('hidden');
+        resultsEl.classList.remove('hidden');
+    }
+
+    /**
      * Poll the status endpoint for a running backtest task.
      * @param {string} taskId - Task identifier.
-     * @param {string} taskType - "backtest", "compare", or "sweep".
+     * @param {string} taskType - "backtest", "compare", "sweep", or "multi".
      */
     function pollStatus(taskId, taskType) {
         if (pollInterval) clearInterval(pollInterval);
@@ -521,6 +651,8 @@
                         displayComparisonResult(data.result);
                     } else if (taskType === 'sweep') {
                         displaySweepResult(data.result);
+                    } else if (taskType === 'multi') {
+                        displayMultiPairResult(data.result);
                     } else {
                         displaySingleResult(data.result);
                     }
@@ -549,7 +681,10 @@
         const runMode = data.run_mode;
         delete data.run_mode;
         const endpoint = getEndpoint(runMode);
-        const taskType = runMode === 'compare' ? 'compare' : (runMode === 'sweep' ? 'sweep' : 'backtest');
+        var taskType = 'backtest';
+        if (runMode === 'compare') taskType = 'compare';
+        else if (runMode === 'sweep') taskType = 'sweep';
+        else if (runMode === 'multi') taskType = 'multi';
 
         // Show loading
         btn.disabled = true;
@@ -558,6 +693,8 @@
             loadingMsg.textContent = 'Running parameter sweep... this may take a while.';
         } else if (runMode === 'compare') {
             loadingMsg.textContent = 'Running strategy comparison...';
+        } else if (runMode === 'multi') {
+            loadingMsg.textContent = 'Running multi-pair backtest across ' + (data.symbols ? data.symbols.length : 0) + ' pairs...';
         } else {
             loadingMsg.textContent = 'Running backtest...';
         }

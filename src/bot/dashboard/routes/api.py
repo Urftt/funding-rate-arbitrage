@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 from bot.analytics import metrics as analytics_metrics
 from bot.backtest.models import BacktestConfig
 from bot.backtest.presets import STRATEGY_PRESETS
-from bot.backtest.runner import run_backtest, run_comparison
+from bot.backtest.runner import run_backtest, run_comparison, run_multi_pair
 from bot.pnl.tracker import PositionPnL
 
 # Optional: ParameterSweep may not be available if 06-03 hasn't been executed yet
@@ -359,6 +359,32 @@ async def _run_sweep_task(
         app_state.backtest_tasks[task_id]["status"] = "error"
 
 
+async def _run_multi_pair_task(
+    task_id: str,
+    app_state: Any,
+    symbols: list[str],
+    config: BacktestConfig,
+    db_path: str,
+) -> None:
+    """Run a multi-pair backtest as a background task.
+
+    Args:
+        task_id: Unique identifier for this task.
+        app_state: FastAPI app.state object for storing results.
+        symbols: List of trading pair symbols.
+        config: Base backtest configuration (symbol overridden per pair).
+        db_path: Path to the historical database.
+    """
+    try:
+        result = await run_multi_pair(symbols, config, db_path)
+        app_state.backtest_tasks[task_id]["result"] = result.to_dict()
+        app_state.backtest_tasks[task_id]["status"] = "complete"
+    except Exception as e:
+        log.error("multi_pair_task_error", task_id=task_id, error=str(e))
+        app_state.backtest_tasks[task_id]["result"] = {"error": str(e)}
+        app_state.backtest_tasks[task_id]["status"] = "error"
+
+
 def _build_config_from_body(body: dict, start_ms: int, end_ms: int) -> BacktestConfig:
     """Build a BacktestConfig from the request body with date timestamps.
 
@@ -556,6 +582,61 @@ async def run_compare_endpoint(request: Request) -> JSONResponse:
         _run_comparison_task(
             task_id, request.app.state, config_simple, config_composite, db_path
         )
+    )
+    request.app.state.backtest_tasks[task_id]["task"] = task
+
+    return JSONResponse(content={"task_id": task_id, "status": "running"})
+
+
+@router.post("/backtest/multi")
+async def run_multi_pair_endpoint(request: Request) -> JSONResponse:
+    """Start a multi-pair backtest as a background task (STRT-01).
+
+    Expects JSON body with: symbols (list), start_date, end_date,
+    strategy_mode, and optional parameter overrides.
+
+    Returns:
+        JSON with task_id and status="running".
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(
+            content={"error": "Invalid JSON body"}, status_code=400
+        )
+
+    # Validate required fields
+    symbols = body.get("symbols")
+    if not symbols or not isinstance(symbols, list) or len(symbols) == 0:
+        return JSONResponse(
+            content={"error": "Missing or empty 'symbols' list"}, status_code=400
+        )
+
+    for field_name in ("start_date", "end_date"):
+        if field_name not in body:
+            return JSONResponse(
+                content={"error": f"Missing required field: {field_name}"}, status_code=400
+            )
+
+    try:
+        start_ms, end_ms = _parse_dates(body["start_date"], body["end_date"])
+    except ValueError as e:
+        return JSONResponse(content={"error": str(e)}, status_code=400)
+
+    # Build base config using first symbol as placeholder
+    body_with_symbol = {**body, "symbol": symbols[0]}
+    config = _build_config_from_body(body_with_symbol, start_ms, end_ms)
+    db_path = getattr(request.app.state, "historical_db_path", "data/historical.db")
+
+    task_id = str(uuid.uuid4())[:8]
+    request.app.state.backtest_tasks[task_id] = {
+        "task": None,
+        "type": "multi",
+        "status": "running",
+        "result": None,
+    }
+    task = asyncio.create_task(
+        _run_multi_pair_task(task_id, request.app.state, symbols, config, db_path)
     )
     request.app.state.backtest_tasks[task_id]["task"] = task
 
