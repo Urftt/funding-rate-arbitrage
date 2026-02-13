@@ -1,8 +1,9 @@
-"""JSON API endpoints for dashboard data (DASH-01 through DASH-07) and backtest (BKTS-04)."""
+"""JSON API endpoints for dashboard data (DASH-01 through DASH-07), backtest (BKTS-04), and pair explorer (Phase 8)."""
 
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -168,6 +169,81 @@ async def get_data_status(request: Request) -> JSONResponse:
         result["fetch_progress"] = progress
 
     return JSONResponse(content=result)
+
+
+# ---------------------------------------------------------------------------
+# Pair Explorer API endpoints (Phase 8)
+# ---------------------------------------------------------------------------
+
+
+def _range_to_since_ms(range_str: str) -> int | None:
+    """Convert date range string to since_ms timestamp.
+
+    Args:
+        range_str: One of "7d", "30d", "90d", "all".
+
+    Returns:
+        Millisecond timestamp for the start of the range, or None for "all".
+    """
+    if range_str == "all":
+        return None
+    days = {"7d": 7, "30d": 30, "90d": 90}.get(range_str)
+    if days is None:
+        return None
+    return int(time.time() * 1000) - days * 86400 * 1000
+
+
+@router.get("/pairs/ranking")
+async def get_pair_ranking(request: Request, range: str = "all") -> JSONResponse:
+    """Phase 8: Get all tracked pairs ranked by annualized yield descending.
+
+    Query params:
+        range: Date range filter -- "7d", "30d", "90d", or "all" (default).
+
+    Returns:
+        JSON array of PairStats objects sorted by yield.
+    """
+    pair_analyzer = getattr(request.app.state, "pair_analyzer", None)
+    if pair_analyzer is None:
+        return JSONResponse(
+            content={"error": "Pair analysis not available"}, status_code=501
+        )
+
+    since_ms = _range_to_since_ms(range)
+    ranking = await pair_analyzer.get_pair_ranking(since_ms=since_ms)
+    return JSONResponse(content=[s.to_dict() for s in ranking])
+
+
+@router.get("/pairs/{symbol:path}/stats")
+async def get_pair_stats(
+    request: Request, symbol: str, range: str = "all"
+) -> JSONResponse:
+    """Phase 8: Get detailed statistics and time series for a single pair.
+
+    Path params:
+        symbol: Trading pair symbol (e.g., "BTC/USDT:USDT").
+
+    Query params:
+        range: Date range filter -- "7d", "30d", "90d", or "all" (default).
+
+    Returns:
+        JSON object with stats and time_series arrays.
+    """
+    pair_analyzer = getattr(request.app.state, "pair_analyzer", None)
+    if pair_analyzer is None:
+        return JSONResponse(
+            content={"error": "Pair analysis not available"}, status_code=501
+        )
+
+    since_ms = _range_to_since_ms(range)
+    try:
+        detail = await pair_analyzer.get_pair_stats(symbol, since_ms=since_ms)
+        return JSONResponse(content=detail.to_dict())
+    except Exception as e:
+        log.error("pair_stats_error", symbol=symbol, error=str(e))
+        return JSONResponse(
+            content={"error": f"No data found for {symbol}"}, status_code=404
+        )
 
 
 # ---------------------------------------------------------------------------

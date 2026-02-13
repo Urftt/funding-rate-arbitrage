@@ -60,6 +60,7 @@ from bot.position.manager import PositionManager
 from bot.position.sizing import PositionSizer
 from bot.risk.emergency import EmergencyController
 from bot.risk.manager import RiskManager
+from bot.analytics.pair_analyzer import PairAnalyzer
 from bot.position.dynamic_sizer import DynamicSizer
 from bot.signals.engine import SignalEngine
 
@@ -287,6 +288,13 @@ async def lifespan(app: FastAPI):
 
     # Store data_store on app.state for dashboard access (may be None)
     app.state.data_store = components.get("data_store")
+
+    # Wire pair analyzer for pair explorer (Phase 8)
+    if components.get("data_store") is not None:
+        app.state.pair_analyzer = PairAnalyzer(
+            data_store=components["data_store"],
+            fee_settings=settings.fees,
+        )
 
     # Set up SIGUSR1 for emergency stop only.
     # SIGINT/SIGTERM are handled by uvicorn -> lifespan cleanup stops orchestrator.

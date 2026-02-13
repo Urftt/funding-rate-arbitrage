@@ -76,6 +76,9 @@ def create_dashboard_app(lifespan: Any = None) -> FastAPI:
     app.state.backtest_tasks: dict = {}
     app.state.historical_db_path = "data/historical.db"
 
+    # Pair analyzer for pair explorer (Phase 8) -- wired by main.py lifespan
+    app.state.pair_analyzer = None
+
     # Register routers
     app.include_router(pages.router)
     app.include_router(api.router, prefix="/api")
