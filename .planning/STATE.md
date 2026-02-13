@@ -5,17 +5,17 @@
 See: .planning/PROJECT.md (updated 2026-02-13)
 
 **Core value:** The bot correctly identifies funding rate opportunities and executes delta-neutral positions that collect funding payments without taking directional risk.
-**Current focus:** v1.2 Strategy Discovery -- Phase 9 (Trade Replay)
+**Current focus:** v1.2 Strategy Discovery -- Phase 9 (Trade Replay) COMPLETE
 
 ## Current Position
 
 Milestone: v1.2 Strategy Discovery
 Phase: 9 of 11 (Trade Replay)
-Plan: 2 of 3 in current phase
-Status: In Progress
-Last activity: 2026-02-13 -- Completed 09-02 (Trade Log & Stats UI)
+Plan: 3 of 3 in current phase
+Status: Phase Complete
+Last activity: 2026-02-13 -- Completed 09-03 (Trade Markers & P&L Histogram)
 
-Progress: [██████████████████████████░░░░] 81% (30/37 plans across all milestones; 4/11 v1.2 plans)
+Progress: [███████████████████████████░░░] 84% (31/37 plans across all milestones; 5/11 v1.2 plans)
 
 ## Performance Metrics
 
@@ -37,15 +37,15 @@ Progress: [███████████████████████
 | 7. Dynamic Position Sizing | 2/2 | 6min | Complete |
 
 **Velocity (v1.2):**
-- Total plans completed: 4
-- Total execution time: ~12min
+- Total plans completed: 5
+- Total execution time: ~14min
 
 **By Phase (v1.2):**
 
 | Phase | Plans | Duration | Status |
 |-------|-------|----------|--------|
 | 8. Pair Analysis Foundation | 2/2 | 6min | Complete |
-| 9. Trade Replay | 2/3 | 6min | In Progress |
+| 9. Trade Replay | 3/3 | 8min | Complete |
 
 ## Accumulated Context
 
@@ -65,6 +65,9 @@ All decisions logged in PROJECT.md Key Decisions table.
 - Used onclick toggle on nextElementSibling for expandable trade rows (09-02)
 - Avg loss displayed with -$ prefix since server provides absolute value magnitude (09-02)
 - Trade log/stats hidden in compare/sweep modes, shown only for single backtests (09-02)
+- Trade markers use timestamp-to-index lookup for O(1) equity curve position mapping (09-03)
+- Scatter datasets conditionally added only when trades exist for graceful degradation (09-03)
+- Histogram hidden in compare/sweep modes; sweep best result passes trades for markers (09-03)
 
 ### Pending Todos
 
@@ -81,6 +84,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-13
-Stopped at: Completed 09-02-PLAN.md
+Stopped at: Completed 09-03-PLAN.md (Phase 09 complete)
 Resume file: None
-Next step: /gsd:execute-phase 09 (plan 03)
+Next step: /gsd:plan-phase 10
