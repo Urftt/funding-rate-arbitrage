@@ -51,7 +51,7 @@ All decisions logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
 
-None.
+1. Migrate to uv environment manager (tooling)
 
 ### Blockers/Concerns
 
