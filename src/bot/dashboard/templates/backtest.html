@@ -91,6 +91,66 @@
     const pnlHistSection = document.getElementById('pnl-histogram-section');
 
     let pollInterval = null;
+    let presetData = {};
+
+    // Fetch strategy presets on page load (optional, degrades gracefully)
+    fetch('/api/backtest/presets')
+        .then(function(resp) { return resp.json(); })
+        .then(function(data) { presetData = data; })
+        .catch(function() { /* presets optional, degrade gracefully */ });
+
+    /**
+     * Apply a strategy preset to the backtest form fields.
+     * Sets strategy mode, clears all advanced fields, fills preset params,
+     * highlights the active button.
+     * @param {string} presetName - Preset key ("conservative", "balanced", "aggressive").
+     */
+    function applyPreset(presetName) {
+        var preset = presetData[presetName];
+        if (!preset) return;
+
+        // Set strategy mode dropdown
+        document.getElementById('bt-strategy').value = preset.strategy_mode;
+
+        // Clear all advanced parameter fields first
+        var advancedFields = ['min_funding_rate', 'entry_threshold', 'exit_threshold',
+                              'exit_funding_rate', 'weight_rate_level', 'weight_trend',
+                              'weight_persistence', 'weight_basis'];
+        advancedFields.forEach(function(field) {
+            var input = form.querySelector('[name="' + field + '"]');
+            if (input) input.value = '';
+        });
+
+        // Fill preset params
+        Object.keys(preset.params).forEach(function(key) {
+            var input = form.querySelector('[name="' + key + '"]');
+            if (input) input.value = preset.params[key];
+        });
+
+        // Show active preset label
+        var label = document.getElementById('preset-active-label');
+        label.textContent = preset.label + ' applied';
+
+        // Highlight active button
+        document.querySelectorAll('[data-preset]').forEach(function(btn) {
+            btn.classList.remove('border-green-500', 'border-blue-500', 'border-red-500', 'text-green-400', 'text-blue-400', 'text-red-400');
+        });
+        var activeBtn = document.querySelector('[data-preset="' + presetName + '"]');
+        if (presetName === 'conservative') {
+            activeBtn.classList.add('border-green-500', 'text-green-400');
+        } else if (presetName === 'balanced') {
+            activeBtn.classList.add('border-blue-500', 'text-blue-400');
+        } else {
+            activeBtn.classList.add('border-red-500', 'text-red-400');
+        }
+    }
+
+    // Wire preset button click handlers
+    document.querySelectorAll('[data-preset]').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            applyPreset(this.dataset.preset);
+        });
+    });
 
     /**
      * Collect form values into a JSON-serializable object.
