@@ -11,11 +11,11 @@ See: .planning/PROJECT.md (updated 2026-02-13)
 
 Milestone: v1.2 Strategy Discovery
 Phase: 10 of 11 (Strategy Builder Visualization)
-Plan: 2 of 3 in current phase
+Plan: 3 of 3 in current phase
 Status: In Progress
-Last activity: 2026-02-13 -- Completed 10-02 (Strategy Presets)
+Last activity: 2026-02-13 -- Completed 10-01 (Multi-Pair Backtest)
 
-Progress: [████████████████████████████░░] 89% (33/37 plans across all milestones; 7/11 v1.2 plans)
+Progress: [█████████████████████████████░] 92% (34/37 plans across all milestones; 8/11 v1.2 plans)
 
 ## Performance Metrics
 
@@ -37,8 +37,8 @@ Progress: [███████████████████████
 | 7. Dynamic Position Sizing | 2/2 | 6min | Complete |
 
 **Velocity (v1.2):**
-- Total plans completed: 7
-- Total execution time: ~18min
+- Total plans completed: 8
+- Total execution time: ~22min
 
 **By Phase (v1.2):**
 
@@ -46,7 +46,7 @@ Progress: [███████████████████████
 |-------|-------|----------|--------|
 | 8. Pair Analysis Foundation | 2/2 | 6min | Complete |
 | 9. Trade Replay | 3/3 | 8min | Complete |
-| 10. Strategy Builder Visualization | 2/3 | 4min | In Progress |
+| 10. Strategy Builder Visualization | 2/3 | 8min | In Progress |
 
 ## Accumulated Context
 
@@ -71,6 +71,9 @@ All decisions logged in PROJECT.md Key Decisions table.
 - Histogram hidden in compare/sweep modes; sweep best result passes trades for markers (09-03)
 - Preset param values stored as strings for direct JSON/form compatibility (10-02)
 - Presets fetched on page load with graceful degradation if endpoint unavailable (10-02)
+- Sequential pair execution (not parallel) to avoid database contention in multi-pair mode (10-01)
+- Compact results discard equity curve and trades for memory efficiency in multi-pair mode (10-01)
+- Error rows show descriptive error text with fallback to "No data" (10-01)
 
 ### Pending Todos
 
@@ -87,6 +90,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-13
-Stopped at: Completed 10-02-PLAN.md
+Stopped at: Completed 10-01-PLAN.md (Multi-Pair Backtest)
 Resume file: None
 Next step: Execute 10-03-PLAN.md
