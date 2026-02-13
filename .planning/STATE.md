@@ -11,11 +11,11 @@ See: .planning/PROJECT.md (updated 2026-02-13)
 
 Milestone: v1.2 Strategy Discovery
 Phase: 9 of 11 (Trade Replay)
-Plan: 1 of 3 in current phase
+Plan: 2 of 3 in current phase
 Status: In Progress
-Last activity: 2026-02-13 -- Completed 09-01 (Trade Data Layer)
+Last activity: 2026-02-13 -- Completed 09-02 (Trade Log & Stats UI)
 
-Progress: [█████████████████████████░░░░░] 78% (29/37 plans across all milestones; 3/11 v1.2 plans)
+Progress: [██████████████████████████░░░░] 81% (30/37 plans across all milestones; 4/11 v1.2 plans)
 
 ## Performance Metrics
 
@@ -37,15 +37,15 @@ Progress: [███████████████████████
 | 7. Dynamic Position Sizing | 2/2 | 6min | Complete |
 
 **Velocity (v1.2):**
-- Total plans completed: 3
-- Total execution time: ~10min
+- Total plans completed: 4
+- Total execution time: ~12min
 
 **By Phase (v1.2):**
 
 | Phase | Plans | Duration | Status |
 |-------|-------|----------|--------|
 | 8. Pair Analysis Foundation | 2/2 | 6min | Complete |
-| 9. Trade Replay | 1/3 | 4min | In Progress |
+| 9. Trade Replay | 2/3 | 6min | In Progress |
 
 ## Accumulated Context
 
@@ -62,6 +62,9 @@ All decisions logged in PROJECT.md Key Decisions table.
 - Fixed total_trades to count round-trip trades instead of open+close events (09-01)
 - Dynamic histogram bin count adapts to trade count: min(10, max(3, len(trades) // 3)) (09-01)
 - avg_loss computed as absolute value for positive display magnitude (09-01)
+- Used onclick toggle on nextElementSibling for expandable trade rows (09-02)
+- Avg loss displayed with -$ prefix since server provides absolute value magnitude (09-02)
+- Trade log/stats hidden in compare/sweep modes, shown only for single backtests (09-02)
 
 ### Pending Todos
 
@@ -78,6 +81,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-13
-Stopped at: Completed 09-01-PLAN.md
+Stopped at: Completed 09-02-PLAN.md
 Resume file: None
-Next step: /gsd:execute-phase 09 (plan 02)
+Next step: /gsd:execute-phase 09 (plan 03)
