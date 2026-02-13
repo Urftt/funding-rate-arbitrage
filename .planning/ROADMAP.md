@@ -70,12 +70,12 @@ Plans:
   3. User can see win/loss categorization with summary stats (win rate, avg win size, avg loss size, best/worst trade)
   4. User can see trade entry/exit markers overlaid on the equity curve chart
   5. User can view a trade P&L distribution histogram showing how many trades fell at each profit/loss level
-**Plans**: TBD
+**Plans:** 3 plans
 
 Plans:
-- [ ] 09-01: BacktestTrade model and trade-level data extraction
-- [ ] 09-02: Trade log UI and win/loss statistics
-- [ ] 09-03: Trade markers on equity curve and P&L distribution chart
+- [ ] 09-01-PLAN.md -- BacktestTrade/TradeStats models, trade extraction from PnLTracker, histogram binning, sweep memory management (TDD)
+- [ ] 09-02-PLAN.md -- Trade log table with expandable rows, win/loss summary stats card, backtest.html JS wiring
+- [ ] 09-03-PLAN.md -- Trade entry/exit scatter markers on equity curve, P&L distribution bar chart histogram
 
 ### Phase 10: Strategy Builder & Visualization
 **Goal**: User can test parameter configurations across multiple pairs simultaneously, compare results, and explore rate distributions with statistical depth
