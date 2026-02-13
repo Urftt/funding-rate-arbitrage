@@ -1,215 +1,336 @@
-# Stack Research: Strategy Intelligence (v1.1)
+# Technology Stack: v1.2 Pair Explorer & Enhanced Visualization
 
-**Domain:** Funding rate arbitrage -- backtesting, trend analysis, dynamic position sizing
-**Researched:** 2026-02-12
-**Confidence:** HIGH (existing stack is established; new additions are stdlib/well-verified)
+**Project:** Funding Rate Arbitrage -- pair profitability analysis, statistical distributions, market cap filtering, trade-level backtest output
+**Researched:** 2026-02-13
+**Confidence:** HIGH (builds on validated v1.1 stack; additions are minimal and well-understood)
 
-## Existing Stack (DO NOT CHANGE)
+## Scope
 
-Already validated in v1.0 -- included here for integration context only:
+This document covers ONLY the stack additions/changes needed for the v1.2 milestone features:
+
+1. **Pair profitability analysis** -- per-pair P&L breakdown, ranking, historical performance
+2. **Statistical distribution visualization** -- funding rate distributions, P&L histograms, box plots
+3. **Market cap data** -- filtering pairs by market capitalization tier
+4. **Enhanced backtest output** -- trade-level detail (entry/exit timestamps, per-trade P&L, funding collected per trade)
+
+It does NOT re-research the existing validated stack (Python 3.12, ccxt, FastAPI, HTMX, Tailwind, Chart.js@4, aiosqlite, numpy, scipy, structlog, Decimal arithmetic).
+
+---
+
+## Existing Stack (Context Only -- DO NOT CHANGE)
 
 | Technology | Version | Purpose |
 |------------|---------|---------|
 | Python | 3.12 | Runtime |
-| ccxt | >=4.5.0 | Exchange API (Bybit) -- async via `ccxt.async_support` |
+| ccxt | >=4.5.0 | Exchange API (Bybit) |
 | FastAPI | >=0.115 | Dashboard backend |
-| HTMX + Tailwind | -- | Dashboard frontend |
+| HTMX | 2.0.4 | Dashboard interactivity (CDN) |
+| Tailwind CSS | CDN | Styling |
+| Chart.js | @4 | Charts (CDN: `cdn.jsdelivr.net/npm/chart.js@4`) |
 | Jinja2 | >=3.1 | Template rendering |
-| pydantic | >=2.5 | Config validation, data models |
-| pydantic-settings | >=2.12 | Environment-based config |
+| aiosqlite | >=0.22 | Historical data storage (SQLite WAL) |
+| numpy | >=2.4.0 | Array math, statistical calculations |
+| scipy | >=1.17.0 | Linear regression, grid search |
 | structlog | >=25.5 | Structured logging |
-| aiolimiter | >=1.2 | Rate limiting |
 | Decimal (stdlib) | -- | All monetary math |
-| asyncio (stdlib) | -- | Concurrency |
-| pytest / pytest-asyncio | >=8.0 / >=0.23 | Testing |
+
+---
 
 ## Recommended NEW Stack Additions
 
-### Core: NumPy -- Numerical Foundation
+### 1. Frontend: @sgratzl/chartjs-chart-boxplot -- Distribution Visualization
 
-| Technology | Version | Purpose | Why Recommended |
-|------------|---------|---------|-----------------|
-| numpy | >=2.4.0 | Array math for trend analysis, moving averages, statistical calculations | Industry standard for numerical computing. Required by scipy. EMA/SMA calculations are 10-100x faster than pure Python loops. v2.4.2 is current (Feb 2026), supports Python 3.12. |
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| @sgratzl/chartjs-chart-boxplot | 4.4.5 | Box plot and violin plot chart types for Chart.js | Only maintained Chart.js box plot plugin. Provides `boxplot` and `violin` chart types that integrate natively with Chart.js 4. Required for visualizing funding rate distributions across pairs and P&L distribution analysis. |
 
-**Confidence:** HIGH -- verified via [numpy.org/news](https://numpy.org/news/) and [PyPI](https://pypi.org/project/numpy/). NumPy 2.4.2 released 2026-02-01, supports Python 3.11-3.14.
+**Confidence:** HIGH -- verified via [jsDelivr CDN](https://www.jsdelivr.com/package/npm/@sgratzl/chartjs-chart-boxplot) and [GitHub](https://github.com/sgratzl/chartjs-chart-boxplot). v4.4.5 published October 2025, actively maintained, Chart.js 4 compatible.
 
-**Integration:** NumPy arrays work alongside Decimal for different domains. Use Decimal for monetary calculations (position sizes, fees, P&L). Use NumPy for statistical analysis (trend slopes, moving averages, z-scores) where float precision is acceptable and speed matters.
+**CDN integration** (matches existing pattern -- no build system needed):
 
-**Pattern:**
+```html
+<!-- In base.html or page-specific block, AFTER chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/@sgratzl/chartjs-chart-boxplot@4.4.5"></script>
+```
+
+The UMD build auto-registers the `boxplot` and `violin` chart types with Chart.js when loaded via script tag. No explicit `Chart.register()` call needed for UMD/CDN usage.
+
+**Usage pattern:**
+
+```javascript
+// Funding rate distribution across pairs
+new Chart(ctx, {
+    type: 'boxplot',  // or 'violin' for density visualization
+    data: {
+        labels: ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'],
+        datasets: [{
+            label: 'Funding Rate Distribution',
+            data: [
+                [0.0001, 0.0002, 0.0003, 0.0001, 0.0005],  // raw arrays
+                [0.0002, 0.0001, 0.0004, 0.0003, 0.0002],
+                [0.0003, 0.0006, 0.0002, 0.0008, 0.0004],
+            ],
+            backgroundColor: 'rgba(34, 197, 94, 0.2)',
+            borderColor: '#22c55e',
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: { legend: { labels: { color: '#9ca3af' } } },
+        scales: {
+            y: { ticks: { color: '#6b7280' }, grid: { color: '#334155' } },
+            x: { ticks: { color: '#6b7280' }, grid: { color: '#334155' } },
+        }
+    }
+});
+```
+
+**Key capability:** The plugin computes quartiles, median, whiskers, and outliers automatically from raw data arrays. No server-side statistical computation needed for box plots -- just pass arrays of funding rates per pair. This keeps the backend simple (return raw rate arrays) and the frontend handles the statistics.
+
+---
+
+### 2. Backend: No New Python Dependencies Required
+
+This is the critical finding: **zero new Python packages are needed for v1.2**.
+
+Every new capability maps to existing stack components:
+
+| New Capability | Implementation | Libraries Used |
+|----------------|----------------|----------------|
+| Per-pair P&L aggregation | SQL GROUP BY queries on existing tables | aiosqlite (existing) |
+| Funding rate histograms | `numpy.histogram()` server-side, Chart.js bar chart client-side | numpy (existing) |
+| Statistical summaries (mean, median, std, quartiles) | `numpy.mean()`, `numpy.median()`, `numpy.std()`, `numpy.percentile()` | numpy (existing) |
+| Funding rate box plots | Return raw rate arrays, boxplot plugin handles stats | numpy (existing) for array slicing |
+| Market cap data | CoinGecko free API via `aiohttp`-style calls... **NO** -- use ccxt's built-in market data | ccxt (existing) |
+| Trade-level backtest output | Extend BacktestResult dataclass with trade list | stdlib dataclasses (existing) |
+| Per-trade P&L in backtests | PnLTracker already tracks per-position; expose it | existing Decimal analytics |
+| Date range filtering for pair analysis | SQL WHERE clauses on timestamp_ms | aiosqlite (existing) |
+
+**Why no new dependencies:**
+
+- **numpy** (already installed) provides `numpy.histogram()` which returns bin counts and edges -- exactly what Chart.js bar charts need for histogram visualization. Server computes bins, client renders bars.
+- **scipy** (already installed) provides `scipy.stats.describe()` for comprehensive statistical summaries if needed beyond numpy.
+- **aiosqlite** (already installed) handles all new SQL queries for pair aggregation.
+- **Chart.js** (already loaded via CDN) handles histograms as styled bar charts with zero-gap `categoryPercentage: 1.0, barPercentage: 1.0` configuration.
+
+---
+
+### 3. Market Cap Data: CoinGecko Free API (No Library Needed)
+
+| Data Source | Tier | Purpose | Why |
+|-------------|------|---------|-----|
+| CoinGecko API v3 `/coins/markets` | Free (Demo) | Market cap per cryptocurrency for pair filtering/tiering | Best free-tier crypto market cap API. 30 calls/min, 10K calls/month. Returns market_cap, market_cap_rank for all listed coins. No API key required for basic usage (key recommended for reliability). |
+
+**Confidence:** HIGH -- verified via [CoinGecko API docs](https://docs.coingecko.com/reference/coins-markets) and [pricing page](https://www.coingecko.com/en/api/pricing).
+
+**Why CoinGecko over CoinMarketCap:** CoinGecko free tier provides market cap data with generous limits (30 calls/min). CoinMarketCap gates most useful endpoints behind paid tiers ($699/mo for full API). CoinGecko covers 13,000+ cryptocurrencies which is more than sufficient for Bybit's ~200 perpetual pairs.
+
+**Why NOT add a CoinGecko Python library:**
+
+The `pycoingecko` PyPI package is an unnecessary dependency. The API call is a single HTTP GET. The project already has `ccxt` which internally uses `aiohttp` for async HTTP -- but rather than coupling to ccxt's internals, use Python's stdlib `urllib.request` for the single synchronous call (market cap data is fetched infrequently as a cache-on-startup operation), or use the existing `aiohttp` that ccxt brings transitively.
+
+**Implementation pattern -- direct HTTP, no new dependency:**
+
 ```python
-# Convert Decimal funding rates to numpy for analysis
-rates_decimal: list[Decimal] = [fr.rate for fr in historical_rates]
-rates_np = np.array([float(r) for r in rates_decimal], dtype=np.float64)
+import json
+import urllib.request
+from decimal import Decimal
 
-# Fast statistical analysis
-slope = np.polyfit(np.arange(len(rates_np)), rates_np, 1)[0]
-ema = _exponential_moving_average(rates_np, span=12)
 
-# Results back to Decimal for trading decisions
-if Decimal(str(slope)) > threshold:
-    ...
+def fetch_market_caps(vs_currency: str = "usd", per_page: int = 250) -> dict[str, Decimal]:
+    """Fetch market cap data from CoinGecko. Called once on startup, cached.
+
+    Returns:
+        Dict mapping uppercase symbol (e.g., "BTC") to market cap in USD.
+    """
+    url = (
+        f"https://api.coingecko.com/api/v3/coins/markets"
+        f"?vs_currency={vs_currency}&order=market_cap_desc"
+        f"&per_page={per_page}&page=1&sparkline=false"
+    )
+    req = urllib.request.Request(url, headers={"Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=15) as response:
+        data = json.loads(response.read())
+
+    return {
+        coin["symbol"].upper(): Decimal(str(coin["market_cap"]))
+        for coin in data
+        if coin.get("market_cap")
+    }
+```
+
+**Data freshness strategy:** Market cap tiers change slowly (BTC is always large-cap). Fetch once at startup, refresh every 24 hours. Store in memory dict. 250 coins per call covers all Bybit perpetual pairs. At 1 call per 24h, free tier of 10K calls/month is never a concern.
+
+**Market cap tier classification:**
+
+```python
+TIER_THRESHOLDS = {
+    "mega": Decimal("50_000_000_000"),    # >$50B (BTC, ETH)
+    "large": Decimal("10_000_000_000"),   # $10B-$50B
+    "mid": Decimal("1_000_000_000"),      # $1B-$10B
+    "small": Decimal("100_000_000"),      # $100M-$1B
+    "micro": Decimal("0"),                # <$100M
+}
 ```
 
 ---
 
-### Core: SciPy -- Statistical Testing and Optimization
+## Histogram Visualization Pattern (No Plugin Needed)
 
-| Technology | Version | Purpose | Why Recommended |
-|------------|---------|---------|-----------------|
-| scipy | >=1.17.0 | `scipy.stats.linregress` for trend detection, `scipy.optimize.brute` for parameter grid search, `scipy.stats.percentileofscore` for rate regime classification | Provides rigorous statistical tests (p-values for trend significance) that hand-rolled code cannot match. Grid search via `brute()` is perfect for small parameter spaces (3-5 params) without adding heavy frameworks. |
+Chart.js does not have a native histogram chart type, but histograms are trivially implemented as bar charts with server-side binning. This is the standard approach used across the Chart.js ecosystem.
 
-**Confidence:** HIGH -- verified via [SciPy docs v1.17.0](https://docs.scipy.org/doc/scipy/release.html). Released 2026-01-10, requires Python 3.11-3.14 and NumPy >=1.26.4.
-
-**Why scipy.optimize.brute over Optuna:** Our backtesting parameter space is small (entry threshold, exit threshold, min holding periods, max positions, position size -- roughly 5 parameters). `scipy.optimize.brute` handles this cleanly with zero additional dependencies beyond scipy itself. Optuna (v4.7.0) pulls in SQLAlchemy, Alembic, colorlog, tqdm, and pyyaml -- heavy dependency bloat for a problem that grid search solves in seconds. Save Optuna for if/when the parameter space grows to 10+ dimensions or needs Bayesian optimization.
-
-**Key functions we will use:**
+**Server side (numpy, already installed):**
 
 ```python
-from scipy.stats import linregress, percentileofscore
-from scipy.optimize import brute
+import numpy as np
+from decimal import Decimal
 
-# Trend detection: Is funding rate increasing or decreasing?
-slope, intercept, r_value, p_value, std_err = linregress(
-    np.arange(len(rates)), rates
-)
-is_trending = p_value < 0.05 and abs(slope) > min_slope
 
-# Regime classification: Where does current rate sit historically?
-percentile = percentileofscore(historical_rates, current_rate)
+def compute_histogram(
+    values: list[Decimal], bins: int | str = "auto"
+) -> dict:
+    """Compute histogram bins from Decimal values for Chart.js rendering.
 
-# Parameter optimization for backtesting
-def objective(params):
-    entry, exit_rate, min_hold = params
-    return -backtest_sharpe(entry, exit_rate, min_hold)  # Minimize negative Sharpe
+    Args:
+        values: List of Decimal values (funding rates, P&L, etc.).
+        bins: Number of bins or numpy strategy ('auto', 'sturges', 'fd').
 
-optimal = brute(objective, ranges=[
-    (0.0001, 0.001, 0.0001),  # entry threshold range
-    (0.00005, 0.0005, 0.00005),  # exit threshold range
-    (1, 8, 1),  # min holding periods
-])
+    Returns:
+        Dict with 'labels' (bin edge strings) and 'counts' (frequency per bin).
+    """
+    arr = np.array([float(v) for v in values], dtype=np.float64)
+    counts, bin_edges = np.histogram(arr, bins=bins)
+
+    labels = [
+        f"{bin_edges[i]:.6f} - {bin_edges[i+1]:.6f}"
+        for i in range(len(counts))
+    ]
+
+    return {
+        "labels": labels,
+        "counts": counts.tolist(),
+        "bin_edges": [float(e) for e in bin_edges],
+    }
 ```
 
----
+**Client side (Chart.js bar chart, already loaded):**
 
-### Core: aiosqlite -- Async Historical Data Storage
-
-| Technology | Version | Purpose | Why Recommended |
-|------------|---------|---------|-----------------|
-| aiosqlite | >=0.22.0 | Async SQLite for persisting historical funding rates, OHLCV data, and backtest results | Zero-infrastructure storage that fits the existing asyncio architecture. No database server needed. SQLite with WAL mode handles concurrent reads (dashboard) with single writer (data collector) at thousands of ops/sec. stdlib sqlite3 underneath. |
-
-**Confidence:** HIGH -- verified via [PyPI](https://pypi.org/project/aiosqlite/) and [GitHub](https://github.com/omnilib/aiosqlite). v0.22.1 released 2025-12-23, requires Python >=3.9.
-
-**Why aiosqlite over PostgreSQL/TimescaleDB:** The v1.0 architecture is intentionally stateless (in-memory dicts). Historical data for backtesting needs persistence, but PostgreSQL adds operational complexity (server process, connection pooling, migrations) that this project does not need. SQLite files are self-contained, require no server, and can store millions of funding rate records efficiently. The data volume is modest: ~200 symbols x 3 rates/day x 365 days = ~219K rows/year.
-
-**Why aiosqlite over sync sqlite3:** The bot runs on asyncio. Blocking the event loop with synchronous SQLite calls would freeze the trading engine during database writes. aiosqlite wraps sqlite3 in a background thread with an async interface that integrates naturally with the existing `async def` patterns throughout the codebase.
-
-**Schema pattern:**
-```python
-async with aiosqlite.connect("data/historical.db") as db:
-    await db.execute("PRAGMA journal_mode=WAL")
-    await db.execute("""
-        CREATE TABLE IF NOT EXISTS funding_rates (
-            symbol TEXT NOT NULL,
-            timestamp_ms INTEGER NOT NULL,
-            rate TEXT NOT NULL,  -- Store as text for Decimal precision
-            PRIMARY KEY (symbol, timestamp_ms)
-        )
-    """)
+```javascript
+function renderHistogram(histData, title, color) {
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: histData.labels,
+            datasets: [{
+                label: title,
+                data: histData.counts,
+                backgroundColor: color + '80',
+                borderColor: color,
+                borderWidth: 1,
+                categoryPercentage: 1.0,  // No gap between bars
+                barPercentage: 1.0,        // Bars fill their category
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { labels: { color: '#9ca3af' } },
+                tooltip: {
+                    callbacks: {
+                        title: (items) => items[0].label,
+                        label: (item) => `Count: ${item.raw}`
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    ticks: { color: '#6b7280', maxRotation: 45 },
+                    grid: { display: false }
+                },
+                y: {
+                    ticks: { color: '#6b7280' },
+                    grid: { color: '#334155' },
+                    title: { display: true, text: 'Frequency', color: '#9ca3af' }
+                }
+            }
+        }
+    });
+}
 ```
 
----
-
-## Supporting Libraries
-
-### NO new supporting libraries needed
-
-The following capabilities will be built with the core additions above plus stdlib:
-
-| Capability | Implementation | Libraries Used |
-|-----------|----------------|----------------|
-| Exponential Moving Average (EMA) | ~10 lines of numpy code | numpy |
-| Simple Moving Average (SMA) | `np.convolve()` with uniform weights | numpy |
-| Linear trend detection | `scipy.stats.linregress()` | scipy |
-| Rate regime classification | `scipy.stats.percentileofscore()` | scipy |
-| Funding rate mean reversion score | Z-score: `(rate - mean) / std` | numpy |
-| Parameter grid search | `scipy.optimize.brute()` | scipy |
-| Historical data persistence | SQLite with WAL mode | aiosqlite |
-| Backtest event replay | Custom iterator over historical data | stdlib (dataclasses, itertools) |
-| Conviction scoring | Weighted sum of trend + regime + momentum signals | numpy |
-| Kelly criterion position sizing | `f = (bp - q) / b` | stdlib Decimal |
+**Why server-side binning, not client-side:** Funding rate datasets can be 50K+ records. Sending raw arrays to the browser for client-side binning wastes bandwidth and can cause UI jank. `numpy.histogram()` bins 50K records in <1ms. Send only the bin counts (20-30 numbers) to the client.
 
 ---
 
-## Historical Data Acquisition (via existing ccxt)
+## Trade-Level Backtest Output (No New Dependencies)
 
-No new library needed. ccxt already supports the required Bybit API endpoints.
+The existing `BacktestResult` contains `equity_curve` (list of EquityPoints) and `BacktestMetrics` (aggregates). For trade-level visualization, extend the model:
 
-### Funding Rate History
+**What exists:**
+- `PnLTracker` already tracks per-position: `opened_at`, `closed_at`, `entry_fee`, `exit_fee`, `funding_payments` list
+- `BacktestEngine` already has access to per-trade data via `self._pnl_tracker.get_closed_positions()`
 
-ccxt method: `exchange.fetch_funding_rate_history(symbol, since, limit, params)`
-
-Bybit API: `GET /v5/market/funding/history` -- returns up to 200 records per call. Pagination via `endTime` parameter (walk backwards). Public endpoint but ccxt may require auth config.
-
-**Known issues (verified via GitHub issues):**
-- Pagination with `since` + `limit` has bugs in some ccxt versions. Use `params={"paginate": True}` for automatic pagination, or implement manual backwards-walking with `endTime`.
-- Max 200 records per request from Bybit API.
-
-### OHLCV / Kline History
-
-ccxt method: `exchange.fetch_ohlcv(symbol, timeframe, since, limit, params)`
-
-Bybit API: `GET /v5/market/kline` -- returns up to 1000 records per call. Available intervals: 1, 3, 5, 15, 30, 60, 120, 240, 360, 720, D, W, M.
-
-**Data collection strategy:**
-1. On first run, backfill historical data (walk backwards from now)
-2. On subsequent runs, fetch only new data since last stored timestamp
-3. Store in SQLite via aiosqlite
-4. Backtest engine reads from SQLite, never hits API
-
----
-
-## ExchangeClient Interface Extension
-
-The existing `ExchangeClient` ABC needs two new methods for data collection:
+**What to add (pure Python, no dependencies):**
 
 ```python
-# Add to bot/exchange/client.py
-@abstractmethod
-async def fetch_funding_rate_history(
-    self, symbol: str, since: int | None = None, limit: int | None = None,
-    params: dict | None = None,
-) -> list[dict]:
-    """Fetch historical funding rates for a symbol."""
-    ...
-
-@abstractmethod
-async def fetch_ohlcv(
-    self, symbol: str, timeframe: str = "1h",
-    since: int | None = None, limit: int | None = None,
-    params: dict | None = None,
-) -> list[list]:
-    """Fetch OHLCV candles for a symbol."""
-    ...
+@dataclass
+class BacktestTrade:
+    """A single trade within a backtest run."""
+    trade_number: int
+    symbol: str
+    entry_timestamp_ms: int
+    exit_timestamp_ms: int
+    entry_price: Decimal
+    exit_price: Decimal
+    quantity: Decimal
+    funding_collected: Decimal
+    fees_paid: Decimal
+    net_pnl: Decimal
+    funding_payments_count: int
+    holding_periods: int  # Number of 8h funding intervals held
 ```
 
-These map directly to ccxt's existing async methods -- the `BybitClient` implementation is trivial delegation.
+Add `trades: list[BacktestTrade]` to `BacktestResult`. The `BacktestEngine._compute_metrics()` method already iterates closed positions -- simply collect them into `BacktestTrade` objects during that iteration.
+
+**Visualization:** Trade-level data enables:
+- Scatter plots: entry time vs. net P&L (Chart.js scatter type, already available)
+- Trade duration histogram (numpy.histogram + bar chart pattern above)
+- Funding collected per trade bar chart (Chart.js bar, already available)
+- Entry/exit markers on equity curve (Chart.js annotation plugin or custom point rendering)
+
+---
+
+## Chart.js Annotation Plugin (Optional Enhancement)
+
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| chartjs-plugin-annotation | 3.1.0 | Draw lines, boxes, and labels on charts | Useful for marking trade entry/exit points on equity curves, drawing threshold lines on distribution charts. Optional -- trade markers can also be done with a second scatter dataset overlaid on the equity line. |
+
+**CDN:**
+```html
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.1.0"></script>
+```
+
+**Recommendation:** Defer this. Trade entry/exit markers on the equity curve can be implemented by adding a scatter dataset with specific points to the existing line chart -- no plugin needed. Only add the annotation plugin if simple overlays prove insufficient for the UX requirements.
 
 ---
 
 ## Alternatives Considered
 
-| Recommended | Alternative | Why Not |
-|-------------|-------------|---------|
-| numpy + scipy | pandas | Pandas is 30MB+ and pulls in pytz, dateutil, etc. We need array math and stats, not DataFrames. NumPy + SciPy are leaner and the existing codebase has zero pandas patterns to maintain consistency with. |
-| numpy + scipy | polars | Same argument as pandas -- we don't need DataFrame operations. Polars is excellent but adds unnecessary abstraction for our use case (arrays of Decimal-converted floats). |
-| scipy.optimize.brute | optuna (v4.7.0) | Optuna pulls SQLAlchemy, Alembic, colorlog, tqdm, pyyaml as mandatory deps. Our parameter space is 3-5 dimensions -- grid search handles this trivially. Optuna's Bayesian optimization is overkill and the dependency footprint is unacceptable for this scope. |
-| scipy.optimize.brute | scikit-learn GridSearchCV | scikit-learn is 50MB+ with joblib, threadpoolctl dependencies. Designed for ML model hyperparams, not trading strategy params. |
-| aiosqlite (SQLite) | PostgreSQL + asyncpg | PostgreSQL requires a running server process, connection pooling config, and schema migration tooling. Our data volume (~200K rows/year) is trivial for SQLite. The bot runs single-instance. No concurrent write contention. |
-| aiosqlite (SQLite) | JSON files | JSON files work for prototyping (as the 50shadesofgwei project demonstrates) but degrade with millions of records. SQLite provides indexed queries, range scans by timestamp, and atomic writes without custom serialization code. |
-| aiosqlite (SQLite) | DuckDB | DuckDB is excellent for analytics but adds a 50MB+ binary dependency. SQLite is stdlib-adjacent (ships with Python), and our query patterns are simple (range scans by symbol+timestamp). |
-| Custom backtest engine | backtesting.py | backtesting.py is designed for price-action strategies (buy/sell signals on OHLCV). Funding rate arbitrage is fundamentally different: entry/exit on funding rate thresholds, P&L from funding payments not price movement. A custom engine that replays funding rate events is simpler and more accurate than adapting a price-action framework. |
-| Custom backtest engine | backtrader | Same issue as backtesting.py -- designed for directional trading. Also, backtrader is not actively maintained (last release 2019). |
-| pymannkendall | scipy.stats.linregress | pymannkendall (v1.4.3, last updated Jan 2023) is unmaintained. scipy.stats.linregress provides trend detection with p-values. For non-parametric needs, implement Mann-Kendall in ~20 lines of numpy rather than adding a stale dependency. |
+| Category | Recommended | Alternative | Why Not |
+|----------|-------------|-------------|---------|
+| Box plots | @sgratzl/chartjs-chart-boxplot (CDN) | D3.js | D3 is a completely different rendering paradigm. Would require rewriting all existing Chart.js charts or maintaining two charting libraries. Unacceptable complexity increase. |
+| Box plots | @sgratzl/chartjs-chart-boxplot (CDN) | Plotly.js | Plotly is 3MB+ minified. Designed for scientific notebooks, not embedded dashboards. Massive overkill for adding box plots to an existing Chart.js dashboard. |
+| Histograms | Chart.js bar chart + numpy.histogram() | Chart.js histogram plugin | No maintained histogram plugin exists for Chart.js 4. Bar charts with zero-gap configuration are the standard community approach. |
+| Histograms | numpy.histogram() server-side | Client-side binning in JS | 50K+ record datasets should be binned server-side. numpy does this in <1ms. Sending raw arrays to browser is wasteful. |
+| Market cap data | CoinGecko free API (direct HTTP) | pycoingecko library | One GET request does not warrant a dependency. The library adds indirection, version management, and slows API update adoption. |
+| Market cap data | CoinGecko free API | CoinMarketCap API | CoinMarketCap gates market cap endpoints behind paid tiers ($699/mo). CoinGecko provides equivalent data on the free tier. |
+| Market cap data | CoinGecko free API | Derive from Bybit volume | Volume is not market cap. A high-volume pair could be micro-cap during a hype cycle. Market cap provides the actual filtering dimension needed. |
+| Async HTTP for CoinGecko | stdlib urllib.request | httpx / aiohttp (new dep) | Market cap is fetched once per 24h on startup. A synchronous call in a background task is fine. Adding httpx (or explicit aiohttp) for one daily HTTP call is over-engineering. ccxt already pulls aiohttp transitively if async is truly needed. |
+| Trade-level output | Extend BacktestResult dataclass | New TradeLog database table | Trade data is ephemeral (per-backtest-run). Persisting to SQLite adds write overhead and cleanup complexity for data that lives only during result display. Keep it in-memory as part of the result dict. |
+| Statistical summaries | numpy (mean, median, std, percentile) | pandas describe() | Pandas is 30MB+ and introduces DataFrame patterns foreign to the codebase. numpy provides identical statistical functions without the overhead. |
 
 ---
 
@@ -217,16 +338,15 @@ These map directly to ccxt's existing async methods -- the `BybitClient` impleme
 
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| pandas | Heavy (30MB+), introduces DataFrame paradigm foreign to codebase, not needed for array operations | numpy for arrays, Decimal for money |
-| polars | Unnecessary DataFrame abstraction for this use case | numpy |
-| optuna | Pulls SQLAlchemy/Alembic/5+ transitive deps for a 3-5 param optimization | scipy.optimize.brute |
-| scikit-learn | 50MB+ ML framework for a simple grid search | scipy.optimize.brute |
-| ta-lib / ta (technical analysis) | Designed for price-action indicators (RSI, MACD). Funding rate analysis needs custom metrics, not stock market indicators | numpy rolling calculations |
-| backtrader / backtesting.py | Price-action backtesting frameworks incompatible with funding rate arbitrage model | Custom replay engine |
-| PostgreSQL / asyncpg | Operational overhead for modest data volume | aiosqlite (SQLite) |
-| Redis | No cache invalidation needs; in-memory dicts sufficient for hot data | Existing dict-based caches |
-| pymannkendall | Unmaintained since Jan 2023 | scipy.stats.linregress or hand-rolled Mann-Kendall with numpy |
-| statsmodels | Heavy dependency (pulls patsy, scipy already covers what we need) | scipy.stats |
+| pandas | 30MB+, DataFrame paradigm not used anywhere in codebase | numpy for stats, SQL for aggregation |
+| plotly / plotly.js | 3MB+ JS bundle, completely different rendering model than Chart.js | Chart.js + boxplot plugin |
+| D3.js | Low-level SVG rendering library, would require rewriting all charts | Chart.js ecosystem |
+| pycoingecko | Unnecessary wrapper for a single HTTP GET call | stdlib urllib.request |
+| httpx | Overkill for one daily HTTP call; already have aiohttp via ccxt | urllib.request or ccxt's transitive aiohttp |
+| matplotlib / seaborn | Server-side image rendering libraries for Python; we render charts client-side in Chart.js | Chart.js (all rendering in browser) |
+| quantstats | Heavy analytics library (pulls pandas, matplotlib, seaborn) for generating HTML reports | Custom numpy-based analytics already built |
+| chartjs-plugin-annotation | Adds complexity for trade markers that can be done with scatter datasets | Overlay scatter dataset on line chart |
+| SQLAlchemy / Alembic | ORM is overkill for the 3-4 new SQL queries needed | Raw SQL via aiosqlite (existing pattern) |
 
 ---
 
@@ -234,78 +354,100 @@ These map directly to ccxt's existing async methods -- the `BybitClient` impleme
 
 ### New production dependencies
 
-```bash
-pip install "numpy>=2.4.0" "scipy>=1.17.0" "aiosqlite>=0.22.0"
+None. Zero new Python packages.
+
+### CDN addition (frontend only)
+
+Add to pages that use box plot/violin charts:
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/@sgratzl/chartjs-chart-boxplot@4.4.5"></script>
 ```
 
-### pyproject.toml additions
+This is a **single script tag** added to the specific template pages that need distribution visualization (likely a new `pair_explorer.html` template). The existing `base.html` does NOT need to change -- Chart.js is loaded per-page in the `{% block head %}` block (see existing `backtest.html` pattern).
 
-```toml
-dependencies = [
-    # ... existing deps ...
-    "numpy>=2.4.0",
-    "scipy>=1.17.0",
-    "aiosqlite>=0.22.0",
-]
-```
+### pyproject.toml
 
-### No new dev dependencies needed
-
-The existing pytest + pytest-asyncio + pytest-mock stack covers testing for all new features. No additional test frameworks required.
+**No changes required.** The dependency list stays exactly as-is.
 
 ---
 
 ## Version Compatibility Matrix
 
-| Package | Version | Python 3.12 | Depends On | Verified |
-|---------|---------|-------------|------------|----------|
-| numpy | >=2.4.0 | Yes (3.11-3.14) | None | [PyPI](https://pypi.org/project/numpy/) 2026-02-01 |
-| scipy | >=1.17.0 | Yes (3.11-3.14) | numpy >=1.26.4 | [SciPy docs](https://docs.scipy.org/doc/scipy/release.html) 2026-01-10 |
-| aiosqlite | >=0.22.0 | Yes (>=3.9) | None (wraps stdlib sqlite3) | [PyPI](https://pypi.org/project/aiosqlite/) 2025-12-23 |
+| Package | Version | Python 3.12 | Status | Notes |
+|---------|---------|-------------|--------|-------|
+| @sgratzl/chartjs-chart-boxplot | 4.4.5 | N/A (JS) | Requires Chart.js >=4.0 | CDN only, UMD auto-registers |
+| CoinGecko API v3 | -- | N/A (HTTP) | Free tier: 30 calls/min, 10K/month | No auth required (key recommended) |
 
-**Total new dependencies: 3 packages** (numpy, scipy, aiosqlite). SciPy depends on NumPy, so the actual new dependency tree is: numpy + scipy + aiosqlite. No transitive surprises.
+All Python dependencies are unchanged from v1.1. No version bumps needed.
 
 ---
 
 ## Stack Patterns by Feature Area
 
-### If building the backtesting engine:
-- Use aiosqlite for historical data storage (funding rates + OHLCV)
-- Use ccxt's existing `fetch_funding_rate_history` and `fetch_ohlcv` for data collection
-- Use numpy for fast array operations during simulation replay
-- Use scipy.optimize.brute for parameter optimization
-- Use existing Decimal-based PnL/fee calculators for accurate simulation
-- Build custom event replay (not a framework) -- iterate over time-sorted records
+### If building pair profitability analysis:
 
-### If building trend analysis:
-- Use numpy for EMA, SMA, rolling statistics (mean, std, z-score)
-- Use scipy.stats.linregress for linear trend detection with p-value significance
-- Use scipy.stats.percentileofscore for historical regime classification
-- Store computed signals in memory (small footprint, recomputed on startup)
+- **Data layer:** SQL `GROUP BY symbol` queries on `funding_rate_history` table via aiosqlite (existing)
+- **Aggregation:** `SUM()`, `AVG()`, `COUNT()` in SQL for per-pair totals; numpy for statistical summaries (std, percentiles) on queried arrays
+- **API:** New FastAPI endpoints returning JSON (existing pattern in `routes/api.py`)
+- **Frontend:** HTMX `hx-get` to load pair cards/tables, Chart.js bar charts for rankings (existing patterns)
 
-### If building dynamic position sizing:
-- Use existing Decimal arithmetic (PositionSizer pattern) for all sizing math
-- Use numpy only for conviction score calculation (weighted signal aggregation)
-- Convert conviction score to Decimal before applying to position size
-- Kelly criterion and risk constraints stay in pure Decimal -- no numpy needed for money math
+### If building statistical distribution visualization:
+
+- **Histograms:** `numpy.histogram()` server-side, Chart.js bar chart client-side with `categoryPercentage: 1.0, barPercentage: 1.0`
+- **Box plots:** `@sgratzl/chartjs-chart-boxplot` CDN plugin, pass raw arrays from API, plugin computes statistics
+- **Violin plots:** Same plugin, `type: 'violin'` -- useful for comparing rate distributions across pairs
+- **Summary stats:** `numpy.mean()`, `numpy.median()`, `numpy.std()`, `numpy.percentile([25, 75])` in API response alongside chart data
+
+### If building market cap filtering:
+
+- **Data source:** CoinGecko `/coins/markets` via stdlib `urllib.request`
+- **Caching:** In-memory dict, refreshed every 24 hours via background asyncio task
+- **Mapping:** CoinGecko returns lowercase symbol; map to ccxt symbol format (`BTC` -> `BTC/USDT:USDT`)
+- **Filtering:** Add `market_cap_tier` to pair data; filter in SQL or Python depending on query pattern
+- **Persistence:** Optional SQLite table for market cap cache (survive restarts without API call), but in-memory is sufficient given the 24h refresh
+
+### If building enhanced backtest trade-level output:
+
+- **Model:** Add `BacktestTrade` dataclass and `trades: list[BacktestTrade]` to `BacktestResult`
+- **Collection:** `BacktestEngine` already iterates through trades; collect into list during `_compute_metrics()`
+- **Serialization:** `to_dict()` pattern already established; extend it
+- **Visualization:** Trade scatter plot (Chart.js scatter), trade P&L histogram (numpy + bar chart), trade table (HTMX + Jinja2 table partial)
+
+---
+
+## Summary: What Changes vs. What Stays
+
+| Layer | Changes | Stays Same |
+|-------|---------|------------|
+| Python dependencies | None | All existing deps |
+| Frontend CDN | +1 script tag (boxplot plugin, page-specific) | Chart.js@4, HTMX 2.0.4, Tailwind CDN |
+| External APIs | +CoinGecko free tier (1 call/24h) | ccxt/Bybit |
+| Data models | +BacktestTrade dataclass, +market_cap field on pairs | All existing models |
+| SQL schema | +Optional market_cap_cache table | All existing tables |
+| Dashboard patterns | Same: HTMX partials, Chart.js rendering, Jinja2 templates | No architectural changes |
+
+**Total new external dependencies: 0 Python packages, 1 CDN script tag, 1 free API endpoint.**
+
+This is intentionally minimal. The existing stack was chosen well for v1.1 and extends naturally to v1.2's visualization and analysis needs.
 
 ---
 
 ## Sources
 
-- [NumPy releases](https://github.com/numpy/numpy/releases) -- v2.4.2 confirmed Feb 2026
-- [SciPy v1.17.0 release notes](https://docs.scipy.org/doc/scipy/release.html) -- confirmed Jan 2026
-- [aiosqlite on PyPI](https://pypi.org/project/aiosqlite/) -- v0.22.1 confirmed Dec 2025
-- [Bybit API: Get Funding Rate History](https://bybit-exchange.github.io/docs/v5/market/history-fund-rate) -- 200 records/page, pagination via endTime
-- [Bybit API: Get Kline](https://bybit-exchange.github.io/docs/v5/market/kline) -- 1000 records/page, intervals 1m to Monthly
-- [ccxt fetchFundingRateHistory issues](https://github.com/ccxt/ccxt/issues/15990) -- pagination bugs documented
-- [ccxt fetchFundingRateHistory auth](https://github.com/ccxt/ccxt/issues/15974) -- auth may be required
-- [Optuna v4.7.0](https://pypi.org/project/optuna/) -- confirmed but rejected due to dependency weight
-- [pymannkendall](https://pypi.org/project/pymannkendall/) -- v1.4.3, last updated Jan 2023, rejected as unmaintained
-- [scipy.optimize.brute docs](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.brute.html) -- grid search reference
-- [scipy.stats.linregress docs](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.linregress.html) -- trend detection reference
-- [50shadesofgwei/funding-rate-arbitrage backtesting](https://deepwiki.com/50shadesofgwei/funding-rate-arbitrage/5.1-backtesting-framework) -- reference architecture using JSON files
+### Verified (HIGH confidence)
+- [Chart.js Bar Chart docs](https://www.chartjs.org/docs/latest/charts/bar.html) -- histogram via bar chart configuration
+- [@sgratzl/chartjs-chart-boxplot on jsDelivr](https://www.jsdelivr.com/package/npm/@sgratzl/chartjs-chart-boxplot) -- v4.4.5 CDN, Chart.js 4 compatible
+- [@sgratzl/chartjs-chart-boxplot GitHub](https://github.com/sgratzl/chartjs-chart-boxplot) -- actively maintained, v4.4.5 Oct 2025
+- [numpy.histogram docs (v2.4)](https://numpy.org/doc/stable/reference/generated/numpy.histogram.html) -- bin computation with auto strategy
+- [CoinGecko API /coins/markets](https://docs.coingecko.com/reference/coins-markets) -- market_cap field, 250 per page, free tier
+- [CoinGecko API pricing](https://www.coingecko.com/en/api/pricing) -- Demo tier: 30 calls/min, 10K/month, free
+
+### Community patterns (MEDIUM confidence)
+- [Chart.js histogram via bar chart (Lei Mao)](https://leimao.github.io/blog/JavaScript-ChartJS-Histogram/) -- standard approach, manually bin + bar chart
+- [Chart.js histogram discussion #10699](https://github.com/chartjs/Chart.js/discussions/10699) -- confirms bar chart approach is canonical
+- [CoinGecko vs CoinMarketCap comparison](https://coincodecap.com/coinmarketcap-vs-coingecko-vs-bitquery-crypto-price-api) -- CoinGecko better free tier
 
 ---
-*Stack research for: Funding Rate Arbitrage v1.1 Strategy Intelligence*
-*Researched: 2026-02-12*
+*Stack research for: Funding Rate Arbitrage v1.2 Pair Explorer & Enhanced Visualization*
+*Researched: 2026-02-13*

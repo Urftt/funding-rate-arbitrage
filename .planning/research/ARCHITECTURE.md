@@ -1,1059 +1,854 @@
-# Architecture Patterns: v1.1 Strategy Intelligence
+# Architecture Patterns
 
-**Domain:** Crypto Funding Rate Arbitrage Bot -- Strategy Intelligence Layer
-**Researched:** 2026-02-12
-**Confidence:** HIGH (based on verified Bybit API docs, existing codebase analysis, and established patterns)
+**Domain:** Strategy Discovery features for existing Funding Rate Arbitrage Bot (v1.2)
+**Researched:** 2026-02-13
+**Mode:** Integration architecture for Pair Explorer, Trade Replay, Strategy Builder, Decision View
 
-## Context: Existing Architecture
+## Executive Summary
 
-The v1.0 bot has a clean, well-factored architecture built on three key patterns:
+The v1.2 features are **analysis and visualization layers** that sit on top of existing infrastructure. They do not modify the trading loop, signal engine, or execution path. The primary integration points are:
 
-1. **Orchestrator pattern** -- `Orchestrator` coordinates scan-rank-decide-execute cycle
-2. **Dependency injection** -- All components injected via `_build_components()` in `main.py`
-3. **Swappable executor** -- `Executor` ABC with `PaperExecutor`/`LiveExecutor` implementations
+1. **HistoricalDataStore** -- all new queries read from the existing SQLite database (50K+ records)
+2. **BacktestEngine** -- enhanced to emit trade-level detail (currently only emits equity curve + aggregate metrics)
+3. **Dashboard routes/templates** -- new pages following the established HTMX partial pattern
+4. **Market cap data** -- new external data source (CoinGecko or Bybit volume proxy)
 
-The core loop in `_autonomous_cycle()` follows this flow:
-```
-APPLY runtime config -> SCAN rates -> RANK opportunities -> DECIDE (close/open) -> MONITOR margin -> LOG
-```
-
-v1.1 adds three capabilities that must integrate without replacing existing patterns:
-- **Historical data storage** -- Fetch and persist funding rates, klines, and market data
-- **Signal analysis** -- Trend detection, pattern recognition feeding into entry/exit decisions
-- **Dynamic position sizing** -- Conviction-based scaling replacing static `max_position_size_usd`
+The architecture principle is **additive, not invasive**: new modules compose with existing ones rather than modifying them. This is consistent with the `Component | None = None` optional dependency injection pattern established in v1.1.
 
 ---
 
-## Recommended Architecture: v1.1 Additions
+## Context: Existing Architecture (v1.0 + v1.1)
+
+The system already has a well-structured architecture:
 
 ```
-                    ┌─────────────────────────────┐
-                    │       Web Dashboard          │
-                    │   (FastAPI + HTMX + WS)      │
-                    │  + backtest results panel     │
-                    │  + signal indicator panel     │
-                    └──────────────┬───────────────┘
-                                   │
-┌──────────────────────────────────▼──────────────────────────────────┐
-│                         Orchestrator                                │
-│                                                                     │
-│  _autonomous_cycle():                                               │
-│    0. APPLY runtime config                                          │
-│    1. SCAN rates (existing)                                         │
-│    2. RANK opportunities (existing)                                 │
-│  +-3. ANALYZE signals (NEW: SignalAnalyzer)                         │
-│  +-4. SIZE positions (MODIFIED: DynamicPositionSizer)               │
-│    5. DECIDE & EXECUTE (existing, but uses signal + size)           │
-│    6. MONITOR margin (existing)                                     │
-│    7. LOG status (existing)                                         │
-└─┬────────┬────────┬────────┬──────────┬─────────┬──────────────────┘
-  │        │        │        │          │         │
-  │        │        │        │          │         │
-┌─▼──┐  ┌─▼──┐  ┌──▼──┐  ┌─▼────┐  ┌──▼───┐  ┌─▼──────────────────┐
-│Fund│  │Opp │  │Sig  │  │Dyn   │  │Back  │  │Historical Data     │
-│Mon │  │Rank│  │Anlz │  │Sizer │  │test  │  │Store (aiosqlite)   │
-│    │  │    │  │(NEW)│  │(NEW) │  │(NEW) │  │(NEW)               │
-│ v1 │  │ v1 │  │     │  │      │  │      │  │                    │
-└─┬──┘  └─┬──┘  └──┬──┘  └─┬────┘  └──┬───┘  └─┬──────────────────┘
-  │        │        │       │          │         │
-  │        │        └───────┼──────────┼─────────┤ reads from store
-  │        │                │          │         │
-  │        │                └──────────┼─────────┤ reads from store
-  │        │                           │         │
-  │        │                           └─────────┤ reads from store
-  │        │                                     │
-  └────────┼─────────────────────────────────────┤ writes to store
-           │                                     │
-┌──────────▼─────────────────────────────────────▼───────────────────┐
-│                    Exchange Client (Bybit via ccxt)                 │
-│  + fetch_funding_rate_history()  (NEW method on ExchangeClient)    │
-│  + fetch_klines()                (NEW method on ExchangeClient)    │
-└────────────────────────────────────────────────────────────────────┘
+Dashboard (FastAPI + HTMX + Chart.js)
+    |
+    v
+Orchestrator (scan -> rank -> signal -> size -> decide -> execute -> monitor)
+    |
+    +-- FundingMonitor (rate scanning, 30s polling)
+    +-- SignalEngine (composite signals: trend, persistence, basis, volume)
+    +-- DynamicSizer (conviction-based position sizing)
+    +-- PositionManager / Executor (ABC: Paper, Live, Backtest)
+    +-- PnLTracker (per-position P&L tracking)
+    +-- RiskManager (exposure limits, emergency stop)
+    |
+    v
+HistoricalDataStore (aiosqlite / SQLite WAL)
+    |
+    v
+ExchangeClient (ccxt / Bybit)
 ```
 
-### New vs Modified Components
+**Dashboard architecture:** Jinja2 templates with HTMX partials, Chart.js for visualization, WebSocket for real-time updates, JSON API endpoints for data. Two pages: `/` (live dashboard, 8 panels) and `/backtest` (backtesting with equity curve and heatmap).
 
-| Component | Status | Location | Purpose |
-|-----------|--------|----------|---------|
-| `HistoricalDataStore` | **NEW** | `src/bot/data/store.py` | SQLite persistence via aiosqlite |
-| `HistoricalDataFetcher` | **NEW** | `src/bot/data/fetcher.py` | Bybit API historical data retrieval with pagination |
-| `SignalAnalyzer` | **NEW** | `src/bot/strategy/signal_analyzer.py` | Trend/pattern analysis on funding rate history |
-| `DynamicPositionSizer` | **NEW** | `src/bot/strategy/dynamic_sizer.py` | Conviction-based sizing replacing static sizer |
-| `BacktestEngine` | **NEW** | `src/bot/backtest/engine.py` | Strategy replay against historical data |
-| `BacktestExecutor` | **NEW** | `src/bot/backtest/executor.py` | Implements `Executor` ABC for backtesting |
-| `ExchangeClient` | **MODIFIED** | `src/bot/exchange/client.py` | Add `fetch_funding_rate_history()`, `fetch_klines()` |
-| `BybitClient` | **MODIFIED** | `src/bot/exchange/bybit_client.py` | Implement new abstract methods |
-| `Orchestrator` | **MODIFIED** | `src/bot/orchestrator.py` | Insert signal analysis + dynamic sizing into cycle |
-| `PositionSizer` | **PRESERVED** | `src/bot/position/sizing.py` | Kept as-is; `DynamicPositionSizer` wraps it |
-| `OpportunityScore` | **EXTENDED** | `src/bot/models.py` | Add signal confidence field |
-| `AppSettings` | **EXTENDED** | `src/bot/config.py` | Add strategy + backtest settings |
+**Key patterns to preserve:**
+1. Orchestrator pattern with dependency injection
+2. Executor ABC for backtest/paper/live mode switching
+3. HTMX partials for dashboard sections (server-renders HTML fragments)
+4. Chart.js CDN for all client-side visualization
+5. Decimal for all monetary math
+6. aiosqlite for all persistence
+7. `Component | None = None` optional injection for feature flags
+8. Background task pattern with polling for long-running operations
 
 ---
 
-## Component Details
+## v1.2 Architecture: Analysis & Visualization Layer
 
-### 1. Historical Data Store (`src/bot/data/store.py`)
+v1.2 adds a **read-only analysis layer** on top of the existing data store. It does NOT modify the trading engine, signal engine, or execution path. All new components are dashboard-facing only.
 
-**Responsibility:** SQLite-based persistence for historical funding rates, klines, and market snapshots. Async via aiosqlite.
-
-**Why SQLite + aiosqlite:**
-- Already an async Python project; aiosqlite integrates naturally with asyncio
-- No external database server to manage (single-file)
-- Sufficient for the data volumes involved (funding rates = 3 records/day/symbol)
-- Well-proven for time-series storage at this scale
-- v1.0 already has in-memory-only storage; SQLite is the minimal step to persistence
-
-**Schema design:**
-
-```sql
--- Funding rate history (primary data for backtesting)
-CREATE TABLE funding_rates (
-    symbol      TEXT NOT NULL,
-    rate        TEXT NOT NULL,  -- Decimal as string
-    timestamp   INTEGER NOT NULL,  -- Unix ms
-    interval_h  INTEGER NOT NULL DEFAULT 8,
-    PRIMARY KEY (symbol, timestamp)
-);
-CREATE INDEX idx_fr_symbol_time ON funding_rates(symbol, timestamp DESC);
-
--- Price klines (for unrealized P&L simulation in backtests)
-CREATE TABLE klines (
-    symbol      TEXT NOT NULL,
-    interval    TEXT NOT NULL,  -- '1h', '4h', etc.
-    open_time   INTEGER NOT NULL,  -- Unix ms
-    open        TEXT NOT NULL,
-    high        TEXT NOT NULL,
-    low         TEXT NOT NULL,
-    close       TEXT NOT NULL,
-    volume      TEXT NOT NULL,
-    PRIMARY KEY (symbol, interval, open_time)
-);
-CREATE INDEX idx_kl_symbol_interval_time ON klines(symbol, interval, open_time DESC);
-
--- Market snapshots (volume, open interest for market condition signals)
-CREATE TABLE market_snapshots (
-    symbol      TEXT NOT NULL,
-    timestamp   INTEGER NOT NULL,
-    volume_24h  TEXT NOT NULL,
-    mark_price  TEXT NOT NULL,
-    PRIMARY KEY (symbol, timestamp)
-);
+```
+                     EXISTING (unchanged)                    NEW (v1.2)
+                    +-------------------+
+                    |   Orchestrator    |
+                    | (trading loop)    |
+                    +-------------------+
+                            |
+              +-------------+-------------+
+              |             |             |
+    +----------------+ +---------+ +------------+
+    | SignalEngine   | | PnL     | | Position   |
+    | (composite     | | Tracker | | Manager    |
+    |  scoring)      | |         | |            |
+    +----------------+ +---------+ +------------+
+              |
+    +-------------------+                +---------------------+
+    | HistoricalData    |<----- reads ---| PairAnalyticsService|  <-- NEW
+    | Store (SQLite)    |                | (stats, rankings,   |
+    +-------------------+                |  distributions)     |
+              |                          +---------------------+
+              |                                   |
+    +-------------------+                +---------------------+
+    | BacktestEngine    |---enhances-->  | TradeLog            |  <-- NEW
+    | (event replay)    |                | (per-trade details) |
+    +-------------------+                +---------------------+
+                                                  |
+    +-------------------+                +---------------------+
+    | Dashboard App     |---new pages--> | Explorer/Builder/   |  <-- NEW
+    | (FastAPI+HTMX)    |                | Decision pages      |
+    +-------------------+                +---------------------+
+                                                  |
+                                         +---------------------+
+                                         | MarketCapProvider   |  <-- NEW
+                                         | (ranking source)    |
+                                         +---------------------+
 ```
 
-**Interface:**
+### Component Boundaries
+
+| Component | Responsibility | Communicates With | Change Type |
+|-----------|---------------|-------------------|-------------|
+| `PairAnalyticsService` | Compute funding rate statistics, distributions, net yield per pair | `HistoricalDataStore` (reads), Dashboard routes (serves data) | **NEW** |
+| `MarketCapProvider` | Rank pairs by market cap or volume proxy | `HistoricalDataStore.get_tracked_pairs()`, optional CoinGecko API | **NEW** |
+| `TradeLog` (dataclass) | Per-trade detail: entry/exit timestamps, prices, reasons, fees, P&L | `BacktestEngine` (produces), Dashboard routes (renders) | **NEW** |
+| `BacktestResult` | Extended with `trades: list[TradeLog]` field | BacktestEngine (produces), API routes (serializes) | **EXTENDED** |
+| `BacktestEngine` | Add trade recording instrumentation in open/close blocks | `HistoricalDataStore`, `PnLTracker`, `PositionManager` | **MINOR CHANGE** |
+| `HistoricalDataStore` | Add pair-level aggregate query methods | SQLite database (existing tables + indexes) | **EXTENDED** |
+| Dashboard pages | 4 new pages: `/explore`, `/explore/{symbol}`, `/strategy`, `/decision` | All services via `app.state` | **NEW** |
+| Dashboard API routes | New JSON endpoints for pair analytics, enhanced backtest results | `PairAnalyticsService`, `BacktestEngine` | **NEW** |
+| Dashboard templates | New page templates + HTMX partials for each feature | Jinja2 rendering, Chart.js CDN | **NEW** |
+
+---
+
+## New Components: Detailed Design
+
+### 1. PairAnalyticsService
+
+**Purpose:** Compute analytical views over historical data that the dashboard consumes. Pure read-only analysis -- no trading decisions, no side effects.
+
+**Why a separate service:** The existing `analytics/metrics.py` computes per-position metrics (Sharpe, drawdown, win rate) from `PositionPnL` objects. The pair analytics service computes per-pair metrics from raw funding rate data. Different input type, different output type, different use case. Routes should be thin -- they fetch data from services and render templates.
 
 ```python
-class HistoricalDataStore:
-    """Async SQLite store for historical market data."""
+# src/bot/analytics/pair_analytics.py
 
-    def __init__(self, db_path: str = "data/history.db") -> None: ...
-
-    async def connect(self) -> None: ...
-    async def close(self) -> None: ...
-
-    # Write methods
-    async def store_funding_rates(self, rates: list[FundingRateRecord]) -> int: ...
-    async def store_klines(self, klines: list[KlineRecord]) -> int: ...
-    async def store_market_snapshot(self, snapshot: MarketSnapshot) -> None: ...
-
-    # Read methods for signal analysis
-    async def get_funding_rates(
-        self, symbol: str, start_ts: int, end_ts: int
-    ) -> list[FundingRateRecord]: ...
-
-    async def get_latest_funding_rates(
-        self, symbol: str, n: int = 30
-    ) -> list[FundingRateRecord]: ...
-
-    async def get_klines(
-        self, symbol: str, interval: str, start_ts: int, end_ts: int
-    ) -> list[KlineRecord]: ...
-
-    # Metadata
-    async def get_data_range(self, symbol: str) -> tuple[int, int] | None: ...
-    async def get_symbols_with_data(self) -> list[str]: ...
-```
-
-**Integration point:** Injected into `HistoricalDataFetcher`, `SignalAnalyzer`, `BacktestEngine`, and `FundingMonitor` (for auto-persisting live rates).
-
-**Key design choice:** All monetary values stored as TEXT (string representation of Decimal). This preserves exact precision and matches the project's Decimal-everywhere convention. Conversion happens at the store boundary.
-
-### 2. Historical Data Fetcher (`src/bot/data/fetcher.py`)
-
-**Responsibility:** Fetch historical data from Bybit API and store it. Handles pagination, rate limiting, and gap detection.
-
-**Bybit API endpoints used (verified against official docs):**
-
-| Data | Endpoint | Limit | Pagination |
-|------|----------|-------|------------|
-| Funding rates | `/v5/market/history-fund-rate` | 200/request | Must pass `endTime`; returns records up to that time |
-| Klines | `/v5/market/kline` | 1000/request | Use `start`/`end` timestamps |
-| Mark price klines | `/v5/market/mark-price-kline` | 1000/request | Same as klines |
-
-**Pagination strategy for funding rates:**
-The Bybit API returns 200 records per call. Passing only `startTime` returns an error. The correct approach is to pass `endTime` and paginate backwards, using the oldest timestamp from the previous response as the next `endTime`.
-
-```python
-class HistoricalDataFetcher:
-    """Fetches and stores historical data from Bybit API."""
-
-    def __init__(
-        self,
-        exchange_client: ExchangeClient,
-        store: HistoricalDataStore,
-    ) -> None: ...
-
-    async def fetch_funding_history(
-        self,
-        symbol: str,
-        start_ts: int,  # Unix ms
-        end_ts: int | None = None,  # None = now
-    ) -> int:
-        """Fetch funding rate history with backward pagination.
-
-        Returns number of records stored.
-        """
-        ...
-
-    async def fetch_kline_history(
-        self,
-        symbol: str,
-        interval: str,  # "60", "240", "D"
-        start_ts: int,
-        end_ts: int | None = None,
-    ) -> int: ...
-
-    async def backfill_symbol(
-        self, symbol: str, days_back: int = 90
-    ) -> dict[str, int]:
-        """Backfill all data types for a symbol. Returns counts."""
-        ...
-
-    async def backfill_all(
-        self, symbols: list[str], days_back: int = 90
-    ) -> dict[str, dict[str, int]]: ...
-```
-
-**Integration point:** Called at startup (backfill on first run), by backtest engine (ensure data exists), and potentially by a scheduled background task.
-
-**Rate limiting:** Bybit's rate limit is 120 req/min for public endpoints. ccxt's `enableRateLimit: True` handles this automatically. The fetcher should add a small delay between paginated calls to be conservative.
-
-### 3. Signal Analyzer (`src/bot/strategy/signal_analyzer.py`)
-
-**Responsibility:** Analyze funding rate trends and market conditions to produce entry/exit signals with confidence scores.
-
-**Signals to compute:**
-
-| Signal | Method | Purpose |
-|--------|--------|---------|
-| Funding rate trend | EMA crossover on recent rates | Detect rising/falling funding rate trends |
-| Rate stability | Standard deviation of last N rates | Avoid entering volatile-rate pairs |
-| Rate persistence | Consecutive periods above threshold | Higher confidence for stable high rates |
-| Volume confirmation | 24h volume relative to historical average | Avoid illiquid periods |
-| Spread analysis | Spot-perp price spread vs historical | Detect convergence/divergence |
-
-**Key design: Pure computation, no side effects.**
-The `SignalAnalyzer` reads from `HistoricalDataStore` and produces `SignalResult` dataclasses. It does NOT make trading decisions -- the orchestrator uses signals to inform its existing decide logic.
-
-```python
 @dataclass
-class SignalResult:
-    """Analysis result for a single trading pair."""
+class PairSummary:
     symbol: str
-    trend: TrendDirection  # RISING, FALLING, STABLE
-    trend_strength: Decimal  # 0.0 to 1.0
-    rate_stability: Decimal  # lower = more stable = better
-    consecutive_above_threshold: int  # funding periods
-    volume_ratio: Decimal  # current vs historical average
-    confidence: Decimal  # 0.0 to 1.0 composite score
-    should_enter: bool
-    should_exit: bool
-    reasoning: str  # human-readable explanation
+    avg_funding_rate: Decimal
+    median_funding_rate: Decimal
+    std_funding_rate: Decimal
+    min_funding_rate: Decimal
+    max_funding_rate: Decimal
+    positive_rate_pct: Decimal           # % of periods with positive rate
+    percentile_25: Decimal
+    percentile_75: Decimal
+    total_periods: int
+    data_coverage_days: int
+    earliest_ms: int
+    latest_ms: int
+    est_annualized_yield: Decimal        # avg_rate * 3 * 365 - est_fees
+    current_streak: int                  # consecutive periods above threshold
+    last_volume_24h: Decimal | None
 
-class TrendDirection(str, Enum):
-    RISING = "rising"
-    FALLING = "falling"
-    STABLE = "stable"
+@dataclass
+class PairRanking:
+    symbol: str
+    avg_rate: Decimal
+    median_rate: Decimal
+    rate_consistency: Decimal             # lower std = more consistent
+    est_net_yield: Decimal
+    data_coverage_days: int
+    volume_24h: Decimal | None
+    market_cap_tier: str                  # "mega", "large", "mid", "small", "unknown"
+    rank: int
 
-class SignalAnalyzer:
-    """Analyzes funding rate history to produce trading signals."""
+@dataclass
+class DistributionBin:
+    bin_start: Decimal
+    bin_end: Decimal
+    count: int
+    percentage: Decimal
 
-    def __init__(
-        self,
-        store: HistoricalDataStore,
-        settings: SignalSettings,
-    ) -> None: ...
 
-    async def analyze(self, symbol: str) -> SignalResult: ...
+class PairAnalyticsService:
+    """Computes pair-level analytics from historical data.
 
-    async def analyze_batch(
-        self, symbols: list[str]
-    ) -> dict[str, SignalResult]: ...
-
-    # Internal computation methods (pure, testable)
-    def _compute_ema(
-        self, values: list[Decimal], span: int
-    ) -> list[Decimal]: ...
-
-    def _compute_trend(
-        self, rates: list[FundingRateRecord]
-    ) -> tuple[TrendDirection, Decimal]: ...
-
-    def _compute_stability(
-        self, rates: list[FundingRateRecord]
-    ) -> Decimal: ...
-
-    def _compute_persistence(
-        self, rates: list[FundingRateRecord], threshold: Decimal
-    ) -> int: ...
-
-    def _compute_confidence(
-        self, trend: TrendDirection, trend_strength: Decimal,
-        stability: Decimal, persistence: int, volume_ratio: Decimal,
-    ) -> Decimal: ...
-```
-
-**Integration into orchestrator cycle:**
-The `SignalAnalyzer` is called AFTER ranking but BEFORE decide/execute. Its output enriches `OpportunityScore` with a confidence value that feeds into both the entry decision and the position sizer.
-
-```python
-# In Orchestrator._autonomous_cycle():
-# ... existing SCAN and RANK steps ...
-
-# 3. ANALYZE: Compute signals for ranked opportunities
-signal_results = await self._signal_analyzer.analyze_batch(
-    [opp.perp_symbol for opp in opportunities[:20]]  # top 20 only
-)
-
-# 4. ENRICH: Attach signals to opportunities
-for opp in opportunities:
-    signal = signal_results.get(opp.perp_symbol)
-    if signal:
-        opp.signal_confidence = signal.confidence
-        opp.signal_should_enter = signal.should_enter
-
-# 5. DECIDE & EXECUTE (existing logic, but now checks signal)
-```
-
-**Trend analysis approach: EMA crossover on funding rates.**
-Use short-period EMA (3 funding periods = 24h) vs long-period EMA (9 funding periods = 3 days). When short EMA crosses above long EMA, the trend is rising. This is the simplest reliable trend detector and uses only the data we naturally have (funding rate history, sampled every 8h).
-
-Standard moving averages are well-suited here because funding rates are already a discrete time series with fixed intervals (every 8h), unlike price data which is continuous. No need for complex time-series libraries.
-
-### 4. Dynamic Position Sizer (`src/bot/strategy/dynamic_sizer.py`)
-
-**Responsibility:** Calculate position size based on signal confidence and risk constraints, replacing the static `max_position_size_usd` approach.
-
-**Key design: Wraps existing `PositionSizer`, does not replace it.**
-The `DynamicPositionSizer` computes a `target_size_usd` based on conviction, then delegates to the existing `PositionSizer.calculate_matching_quantity()` which handles exchange constraints (qty_step, min_qty, min_notional). This preserves all existing exchange-constraint logic.
-
-```python
-class DynamicPositionSizer:
-    """Conviction-based position sizing with risk constraints.
-
-    Wraps the existing PositionSizer for exchange constraint handling.
-    Replaces static max_position_size_usd with dynamic sizing.
+    Stateless service -- all data comes from HistoricalDataStore queries.
+    Results are computed on-demand (no caching needed for ~20 pairs at current scale).
     """
 
     def __init__(
         self,
-        base_sizer: PositionSizer,
-        settings: DynamicSizingSettings,
-    ) -> None: ...
-
-    def calculate_target_size_usd(
-        self,
-        confidence: Decimal,
-        annualized_yield: Decimal,
-        current_portfolio_exposure: Decimal,
-        available_balance: Decimal,
-    ) -> Decimal:
-        """Compute target position size in USD.
-
-        Scaling formula:
-          base_size = min_position_size_usd
-          conviction_multiplier = confidence * (annualized_yield / baseline_yield)
-          target = base_size * conviction_multiplier
-          target = clamp(target, min_position_size_usd, max_position_size_usd)
-          target = min(target, max_portfolio_pct * available_balance - exposure)
-
-        Returns target size in USD, already constrained.
-        """
-        ...
-
-    def calculate_quantity(
-        self,
-        target_size_usd: Decimal,
-        price: Decimal,
-        available_balance: Decimal,
-        spot_instrument: InstrumentInfo,
-        perp_instrument: InstrumentInfo,
-    ) -> Decimal | None:
-        """Delegate to base_sizer with dynamic target.
-
-        Temporarily overrides base_sizer's max_position_size_usd
-        with our computed target, then calls
-        base_sizer.calculate_matching_quantity().
-        """
-        ...
-```
-
-**Sizing model: Fractional Kelly with conviction scaling.**
-
-Rather than full Kelly criterion (which requires accurate probability estimates we do not have), use a simplified conviction-based model:
-
-1. **Base size:** Configurable minimum (e.g., $200)
-2. **Conviction multiplier:** `confidence * (annualized_yield / baseline_yield)`, clamped to [1.0, max_multiplier]
-3. **Risk constraints:**
-   - Per-pair max: configurable cap (e.g., $2000)
-   - Portfolio max: total exposure cannot exceed X% of balance
-   - Correlation penalty: reduce size when many positions in similar assets
-4. **Final size:** `base * multiplier`, clamped by all constraints
-
-This is simpler and more robust than full Kelly because:
-- We do not need to estimate win probability (hard for funding rates)
-- The confidence score from `SignalAnalyzer` is already a composite of trend, stability, persistence
-- Fractional approaches (half-Kelly, quarter-Kelly) are standard practice for robustness
-
-**Integration into orchestrator:**
-
-```python
-# In Orchestrator._open_profitable_positions():
-# Instead of using static self._settings.trading.max_position_size_usd:
-
-target_size = self._dynamic_sizer.calculate_target_size_usd(
-    confidence=opp.signal_confidence,
-    annualized_yield=opp.annualized_yield,
-    current_portfolio_exposure=current_exposure,
-    available_balance=available_balance,
-)
-```
-
-### 5. Backtest Engine (`src/bot/backtest/engine.py`)
-
-**Responsibility:** Replay the orchestrator's strategy logic against historical data to evaluate parameter sets and compare strategies.
-
-**Key design: Reuse existing components via the Executor ABC.**
-The backtesting engine introduces a `BacktestExecutor` that implements the same `Executor` interface as `PaperExecutor` and `LiveExecutor`. This means ALL existing strategy logic (orchestrator, position manager, P&L tracker, opportunity ranker) runs unchanged during backtests.
-
-This is the single most important architectural decision for v1.1: the backtest reuses the real trading logic, not a simplified simulation.
-
-```python
-class BacktestExecutor(Executor):
-    """Executor that fills orders from historical price data.
-
-    Implements the Executor ABC so the entire existing trading
-    pipeline (PositionManager, Orchestrator) works unmodified.
-    """
-
-    def __init__(
-        self, price_series: dict[str, list[KlineRecord]]
+        data_store: HistoricalDataStore,
+        market_cap_provider: MarketCapProvider | None = None,
     ) -> None:
-        self._prices = price_series
-        self._current_time: int = 0
-        self._fills: list[OrderResult] = []
+        self._store = data_store
+        self._market_cap = market_cap_provider
 
-    def set_time(self, timestamp: int) -> None:
-        """Advance simulation clock."""
-        self._current_time = timestamp
-
-    async def place_order(self, request: OrderRequest) -> OrderResult:
-        """Fill at historical price for current simulation time."""
-        price = self._get_price_at(request.symbol, self._current_time)
-        # Apply simulated slippage and fees (same as PaperExecutor)
+    async def get_pair_summary(self, symbol: str) -> PairSummary:
+        """Compute funding rate stats for a single pair."""
         ...
 
-    async def cancel_order(self, order_id: str, symbol: str, category: str = "linear") -> bool:
-        return True  # Instant fills, nothing to cancel
-```
+    async def get_pair_distribution(
+        self, symbol: str, bins: int = 20
+    ) -> list[DistributionBin]:
+        """Histogram of funding rates for Chart.js rendering.
 
-**Backtest engine orchestration:**
-
-```python
-class BacktestEngine:
-    """Replays strategy against historical data."""
-
-    def __init__(
-        self,
-        store: HistoricalDataStore,
-        settings: AppSettings,
-    ) -> None: ...
-
-    async def run(
-        self,
-        symbols: list[str],
-        start_ts: int,
-        end_ts: int,
-        strategy_params: dict | None = None,
-    ) -> BacktestResult:
-        """Run a single backtest.
-
-        Steps:
-        1. Load historical data from store
-        2. Create BacktestExecutor with price series
-        3. Build component graph (same as main._build_components)
-           but with BacktestExecutor instead of Paper/Live
-        4. Step through time: for each funding period:
-           a. Update BacktestExecutor clock
-           b. Feed historical rates to FundingMonitor (mock)
-           c. Run one orchestrator cycle
-           d. Record state
-        5. Collect results from PnLTracker
+        Computes bins in Python from fetched rates (SQLite lacks
+        histogram functions). Typically ~2500 rates per pair for
+        1 year of data -- fast to process.
         """
         ...
 
-    async def optimize(
-        self,
-        symbols: list[str],
-        start_ts: int,
-        end_ts: int,
-        param_grid: dict[str, list],
-    ) -> list[BacktestResult]:
-        """Run backtests across parameter combinations."""
+    async def get_all_pair_rankings(self) -> list[PairRanking]:
+        """All tracked pairs ranked by estimated net yield."""
+        ...
+
+    async def get_funding_rate_timeseries(
+        self, symbol: str, since_ms: int | None = None
+    ) -> list[dict]:
+        """Time series of funding rates for Chart.js line chart."""
         ...
 ```
 
-**BacktestResult dataclass:**
+**Integration point:** Injected into `app.state` during startup. Dashboard routes access via `request.app.state.pair_analytics`.
+
+### 2. TradeLog and Enhanced BacktestResult
+
+**Purpose:** The existing `BacktestEngine` tracks trades via `PnLTracker` but only exposes aggregate metrics and equity curve. Trade Replay needs per-trade detail.
+
+**Design decision: Capture in engine, not reconstruct from PnLTracker.** The engine already has all the information at the moment of open/close decisions (entry reason, exit reason, signal scores). Recording a `TradeLog` at each decision point is simpler and captures decision context that `PnLTracker` does not store.
+
+```python
+# src/bot/backtest/models.py (extended)
+
+@dataclass
+class TradeLog:
+    """A single simulated trade in a backtest."""
+    trade_id: int                    # Sequential trade number
+    symbol: str                      # Perp symbol
+
+    # Entry
+    entry_timestamp_ms: int
+    entry_price: Decimal
+    entry_reason: str                # "rate_above_threshold", "composite_signal_0.72"
+    quantity: Decimal
+
+    # Exit
+    exit_timestamp_ms: int
+    exit_price: Decimal
+    exit_reason: str                 # "rate_below_exit", "composite_below_0.2", "backtest_end"
+
+    # P&L breakdown
+    entry_fee: Decimal
+    exit_fee: Decimal
+    total_funding: Decimal
+    funding_payments_count: int
+    net_pnl: Decimal                 # funding - fees + price_pnl
+
+    # Derived
+    holding_periods: int             # Number of funding settlements
+    holding_hours: int               # Total hours held
+    annualized_return: Decimal | None
+
+    def to_dict(self) -> dict:
+        """Serialize for JSON, converting Decimals to strings."""
+        return {
+            "trade_id": self.trade_id,
+            "symbol": self.symbol,
+            "entry_timestamp_ms": self.entry_timestamp_ms,
+            "exit_timestamp_ms": self.exit_timestamp_ms,
+            "entry_price": str(self.entry_price),
+            "exit_price": str(self.exit_price),
+            "entry_reason": self.entry_reason,
+            "exit_reason": self.exit_reason,
+            "quantity": str(self.quantity),
+            "entry_fee": str(self.entry_fee),
+            "exit_fee": str(self.exit_fee),
+            "total_funding": str(self.total_funding),
+            "funding_payments_count": self.funding_payments_count,
+            "net_pnl": str(self.net_pnl),
+            "holding_periods": self.holding_periods,
+            "holding_hours": self.holding_hours,
+            "annualized_return": str(self.annualized_return) if self.annualized_return else None,
+        }
+```
+
+**BacktestResult extension (backward compatible):**
 
 ```python
 @dataclass
 class BacktestResult:
-    """Results of a single backtest run."""
-    params: dict
-    start_ts: int
-    end_ts: int
-    total_pnl: Decimal
-    total_funding_collected: Decimal
-    total_fees_paid: Decimal
-    num_trades: int
-    win_rate: Decimal | None
-    sharpe_ratio: Decimal | None
-    max_drawdown: Decimal | None
-    positions: list[PositionPnL]
-    # Comparison with baseline
-    vs_simple_threshold: Decimal | None  # relative improvement
+    config: BacktestConfig
+    equity_curve: list[EquityPoint]
+    metrics: BacktestMetrics
+    trades: list[TradeLog] = field(default_factory=list)  # NEW -- default empty
+
+    def to_dict(self) -> dict:
+        result = {
+            "config": self.config.to_dict(),
+            "equity_curve": [...],
+            "metrics": {...},
+        }
+        if self.trades:  # Only include when populated
+            result["trades"] = [t.to_dict() for t in self.trades]
+        return result
 ```
 
-**Why custom engine instead of vectorbt/backtrader:**
-- Funding rate arbitrage is NOT a standard OHLC-based strategy. It requires replaying funding rate snapshots, simulating 8h settlement cycles, and tracking dual-leg (spot+perp) positions. No existing framework handles this natively.
-- The entire point is to reuse the REAL orchestrator/ranker/sizer logic via the Executor ABC. An external framework would require reimplementing the strategy from scratch, creating divergence between backtest and live.
-- The project already has all the components (PositionManager, PnLTracker, FeeCalculator, analytics) -- the backtest engine just needs to feed them historical data and step through time.
+**Engine modification scope:** The `BacktestEngine.run()` method in `engine.py` (lines ~307-384) already has open/close logic. Trade log recording adds approximately 30-40 lines:
 
-### 6. ExchangeClient Extensions
+1. Add `self._trades: list[TradeLog] = []` and `self._trade_counter = 0` in `__init__`
+2. After successful `open_position()` (~line 363): store entry details in a pending trade dict
+3. After successful `close_position()` (~line 310): construct `TradeLog` from pending + exit details + PnLTracker funding data
+4. Include `trades=self._trades` in the returned `BacktestResult`
 
-**Two new abstract methods on `ExchangeClient` ABC:**
+The existing decision flow is unchanged. The `ParameterSweep` class already discards equity curves for non-best results (`sweep.py:143-151`) -- the same pattern naturally applies to trade logs.
+
+**Alternative considered and rejected:** Reconstructing trades from `PnLTracker.get_closed_positions()` in `_compute_metrics()`. This is simpler but loses the entry/exit reason strings (PnLTracker does not store why a position was opened or closed). The entry reason is valuable for understanding strategy behavior.
+
+**Confidence:** HIGH.
+
+### 3. MarketCapProvider
+
+**Purpose:** Rank the ~20 tracked pairs by market cap for the Pair Explorer.
+
+**Design decision: Use Bybit volume as primary proxy, CoinGecko as optional enrichment.**
+
+Rationale:
+- Bybit volume data is **already available** in `tracked_pairs.last_volume_24h` -- zero API calls needed
+- CoinGecko free tier has **30 calls/min, 10K calls/month** -- sufficient but adds external dependency
+- Volume and market cap are strongly correlated for top-20 crypto assets on Bybit
+- Market cap rankings change slowly (daily at most)
 
 ```python
-class ExchangeClient(ABC):
-    # ... existing methods ...
+# src/bot/data/market_cap.py
 
-    @abstractmethod
-    async def fetch_funding_rate_history(
+class MarketCapProvider:
+    """Provides market cap rankings for tracked pairs.
+
+    Primary: Bybit 24h volume from tracked_pairs table (zero API calls).
+    Optional: CoinGecko enrichment for true market cap data.
+    Follows Component | None = None pattern.
+    """
+
+    def __init__(
         self,
-        symbol: str,
-        start_time: int | None = None,
-        end_time: int | None = None,
-        limit: int = 200,
-    ) -> list[dict]:
-        """Fetch historical funding rate records."""
+        data_store: HistoricalDataStore,
+        coingecko_enabled: bool = False,
+        refresh_interval_hours: int = 6,
+    ) -> None:
+        self._store = data_store
+        self._coingecko_enabled = coingecko_enabled
+        self._refresh_interval = refresh_interval_hours * 3600
+        self._cache: dict[str, Decimal] | None = None
+        self._cache_time: float = 0
+
+    async def get_rankings(self) -> list[dict]:
+        """Return pairs ranked by market cap (or volume proxy)."""
         ...
 
-    @abstractmethod
-    async def fetch_klines(
-        self,
-        symbol: str,
-        interval: str,
-        start_time: int | None = None,
-        end_time: int | None = None,
-        limit: int = 200,
-        category: str = "linear",
-    ) -> list[dict]:
-        """Fetch historical kline/candlestick data."""
+    def get_tier(self, base_symbol: str) -> str:
+        """Classify: mega (>$50B), large (>$10B), mid (>$1B), small (>$100M), micro."""
         ...
 ```
 
-**BybitClient implementation** maps directly to Bybit API v5 endpoints:
-- `fetch_funding_rate_history` -> ccxt's `fetch_funding_rate_history()` or direct `/v5/market/history-fund-rate`
-- `fetch_klines` -> ccxt's `fetch_ohlcv()` which maps to `/v5/market/kline`
+**Integration:** Created at startup, stored on `app.state.market_cap_provider`. Optional dependency of `PairAnalyticsService`.
+
+**Confidence:** HIGH for volume proxy, MEDIUM for CoinGecko enrichment (symbol mapping needs validation).
+
+### 4. Dashboard Pages and Routes
+
+**Pattern reuse:** The existing dashboard follows a well-established pattern:
+- `routes/pages.py`: full-page GET routes returning `TemplateResponse`
+- `routes/api.py`: JSON API endpoints for HTMX partial updates and background tasks
+- `templates/`: Jinja2 with `base.html` inheritance and `partials/` for HTMX fragments
+- Background task pattern with task_id polling for long-running operations
+
+**New pages:**
+
+| Route | Template | Purpose | Data Sources |
+|-------|----------|---------|--------------|
+| `GET /explore` | `explore.html` | Pair rankings table with stats | `PairAnalyticsService.get_all_pair_rankings()` |
+| `GET /explore/{symbol}` | `explore_detail.html` | Single pair deep-dive: rate chart, histogram, stats | `PairAnalyticsService` methods |
+| `GET /strategy` | `strategy.html` | Multi-pair backtest builder with parameter tweaking | `HistoricalDataStore.get_tracked_pairs()`, backtest API |
+| `GET /decision` | `decision.html` | Summary "should I trade?" view | `PairAnalyticsService` + aggregated backtest results |
+
+**New API endpoints:**
+
+| Endpoint | Method | Purpose | Returns |
+|----------|--------|---------|---------|
+| `/api/pairs/rankings` | GET | Pair rankings table data | JSON list of PairRanking |
+| `/api/pairs/{symbol}/summary` | GET | Pair summary stats | JSON PairSummary |
+| `/api/pairs/{symbol}/distribution` | GET | Distribution bins for Chart.js | JSON list of DistributionBin |
+| `/api/pairs/{symbol}/timeseries` | GET | Funding rate time series for Chart.js | JSON list of {timestamp_ms, rate} |
+| `/api/backtest/multi-pair` | POST | Run backtests across selected pairs | JSON {task_id, status} |
+| `/api/backtest/trades/{task_id}` | GET | Get trade log for completed backtest | JSON list of TradeLog |
+
+**Route organization:** Create new route modules to avoid bloating existing files:
+
+```python
+# routes/explore.py -- Pair Explorer pages and API
+# routes/strategy.py -- Strategy Builder pages and API
+# routes/decision.py -- Decision View page
+```
+
+Register in `app.py` following existing pattern:
+
+```python
+from bot.dashboard.routes import explore, strategy, decision
+app.include_router(explore.router)
+app.include_router(strategy.router)
+app.include_router(decision.router)
+```
+
+**Navigation update in `base.html`:**
+
+```html
+<a href="/" class="text-gray-400 hover:text-white text-sm">Dashboard</a>
+<a href="/explore" class="text-gray-400 hover:text-white text-sm">Explore</a>
+<a href="/backtest" class="text-gray-400 hover:text-white text-sm">Backtest</a>
+<a href="/strategy" class="text-gray-400 hover:text-white text-sm">Strategy</a>
+<a href="/decision" class="text-gray-400 hover:text-white text-sm">Decision</a>
+```
+
+**New HTMX partials:**
+
+| Partial | Used By | Chart.js? |
+|---------|---------|-----------|
+| `partials/pair_rankings_table.html` | `/explore` | No (table) |
+| `partials/pair_rate_chart.html` | `/explore/{symbol}` | Yes (line chart) |
+| `partials/pair_distribution.html` | `/explore/{symbol}` | Yes (bar chart/histogram) |
+| `partials/pair_stats_card.html` | `/explore/{symbol}` | No (stats grid) |
+| `partials/strategy_builder_form.html` | `/strategy` | No (form with multi-select) |
+| `partials/multi_pair_results.html` | `/strategy` | Yes (comparison table + charts) |
+| `partials/trade_log_table.html` | `/strategy`, `/explore/{symbol}` | No (table) |
+| `partials/decision_summary.html` | `/decision` | Yes (summary cards + recommendation) |
+
+**Confidence:** HIGH -- follows exact same patterns as existing backtest page.
 
 ---
 
-## Data Flow Changes
+## Data Flow
 
-### Live Trading Flow (modified steps marked with +)
-
-```
-1. SCAN: FundingMonitor polls exchange (existing)
-      + FundingMonitor also writes to HistoricalDataStore (new)
-2. RANK: OpportunityRanker scores pairs (existing, unchanged)
-3. ANALYZE: SignalAnalyzer reads HistoricalDataStore (NEW step)
-      produces SignalResult per symbol
-4. DECIDE: Orchestrator uses signal.should_enter and
-      signal.confidence (MODIFIED -- was threshold-only)
-5. SIZE: DynamicPositionSizer uses signal.confidence
-      to compute target size (MODIFIED -- was static)
-6. EXECUTE: PositionManager + Executor (existing, unchanged)
-7. MONITOR: RiskManager + margin checks (existing, unchanged)
-```
-
-### Backtest Flow (entirely new)
+### Pair Explorer Flow (entirely new, read-only)
 
 ```
-1. LOAD: BacktestEngine reads historical data from store
-2. BUILD: Constructs component graph with BacktestExecutor
-3. STEP: For each 8h funding period in range:
-   a. Set BacktestExecutor time
-   b. Feed historical rates to mock FundingMonitor
-   c. Feed historical klines to mock TickerService
-   d. Run one Orchestrator._autonomous_cycle()
-4. COLLECT: Extract results from PnLTracker
-5. ANALYZE: Compute metrics (reuses existing analytics/metrics.py)
+User navigates to /explore
+    |
+    v
+Page loads with pair rankings table (server-rendered)
+    |
+    v
+User clicks a pair row -> navigates to /explore/{symbol}
+    |
+    v
+Page loads with stats card (server-rendered)
+    |
+    +-- HTMX hx-trigger="load" -> /api/pairs/{symbol}/timeseries
+    |   -> Chart.js line chart of funding rate history
+    |
+    +-- HTMX hx-trigger="load" -> /api/pairs/{symbol}/distribution
+        -> Chart.js bar chart (histogram) of rate distribution
 ```
 
-### Historical Data Flow (new background process)
+### Enhanced Backtest Flow (extends existing)
 
 ```
-1. STARTUP: HistoricalDataFetcher.backfill_all() for configured symbols
-2. CONTINUOUS: FundingMonitor writes each poll to store (append-only)
-3. ON-DEMAND: BacktestEngine calls fetcher.backfill_symbol() if data missing
+User runs backtest (existing flow unchanged)
+    |
+    v
+BacktestEngine.run() executes (existing event loop)
+    |
+    v
+NEW: Engine records TradeLog entries at open/close decision points
+    |
+    v
+BacktestResult returned with .trades populated
+    |
+    v
+API serializes result including trades array
+    |
+    v
+Client renders:
+  - Existing: metrics cards, equity curve, heatmap
+  - NEW: trade log table partial (expandable rows with P&L breakdown)
+  - NEW: trade timeline on equity curve (markers at open/close points)
 ```
 
----
+### Multi-Pair Strategy Builder Flow (new)
 
-## Integration Points: Detailed
-
-### Orchestrator Modifications
-
-The `Orchestrator.__init__()` gains two new optional dependencies:
-
-```python
-class Orchestrator:
-    def __init__(
-        self,
-        # ... existing 11 parameters ...
-        signal_analyzer: SignalAnalyzer | None = None,    # NEW
-        dynamic_sizer: DynamicPositionSizer | None = None,  # NEW
-    ) -> None:
+```
+User navigates to /strategy
+    |
+    v
+Form: select multiple pairs (checkbox list from tracked_pairs)
+       + set parameters (reuses backtest config form pattern)
+       + submit
+    |
+    v
+POST /api/backtest/multi-pair
+    |
+    v
+Background task: run_backtest() sequentially for each selected pair
+    |
+    v
+Poll GET /api/backtest/status/{task_id} (existing pattern)
+    |
+    v
+Render multi-pair comparison:
+  - Per-pair metrics table (sortable by net P&L, win rate, etc.)
+  - Aggregated summary ("X of Y pairs profitable")
+  - Best/worst pair highlight
+  - Trade logs per pair (expandable)
 ```
 
-Making them optional (defaulting to `None`) means:
-- v1.0 behavior is preserved when not injected
-- Gradual rollout: add signals first, sizing later
-- Tests can inject one without the other
+### Decision View Flow (new, aggregation)
 
-The `_autonomous_cycle()` method adds steps 3 and 4 between RANK and DECIDE:
-
-```python
-async def _autonomous_cycle(self) -> None:
-    # 0-2: existing (apply config, scan, rank)
-    ...
-
-    # 3. ANALYZE (new, optional)
-    signal_results: dict[str, SignalResult] = {}
-    if self._signal_analyzer is not None:
-        symbols = [opp.perp_symbol for opp in opportunities[:20]]
-        signal_results = await self._signal_analyzer.analyze_batch(symbols)
-
-    # 4. ENRICH opportunities with signals (new)
-    for opp in opportunities:
-        signal = signal_results.get(opp.perp_symbol)
-        if signal is not None:
-            opp.signal_confidence = signal.confidence
-            opp.signal_should_enter = signal.should_enter
-
-    # 5-7: existing (close unprofitable, open profitable, monitor, log)
-    # But _open_profitable_positions now checks signal_should_enter
-    # and uses dynamic sizing if available
+```
+User navigates to /decision
+    |
+    v
+Page aggregates data from multiple sources:
+  - PairAnalyticsService.get_all_pair_rankings() -- which pairs look good historically?
+  - Most recent multi-pair backtest results -- what does the strategy produce?
+  - Current live funding rates (from FundingMonitor via app.state) -- what is happening now?
+    |
+    v
+Renders summary:
+  - "X pairs have historically positive net yield after fees"
+  - "Best performing pair in backtest: {pair} at {yield}%"
+  - "Current live funding rates above threshold: {count}"
+  - Traffic-light recommendation: green/yellow/red based on evidence
 ```
 
-### Position Opening Modifications
+### Key Data Flow Principles
 
-`_open_profitable_positions()` currently uses static `self._settings.trading.max_position_size_usd`. With dynamic sizing:
-
-```python
-async def _open_profitable_positions(self, opportunities):
-    for opp in opportunities:
-        if not opp.passes_filters:
-            continue
-
-        # NEW: Check signal if available
-        if hasattr(opp, 'signal_should_enter') and opp.signal_should_enter is False:
-            continue
-
-        # NEW: Dynamic sizing if available
-        if self._dynamic_sizer is not None and hasattr(opp, 'signal_confidence'):
-            target_size = self._dynamic_sizer.calculate_target_size_usd(
-                confidence=opp.signal_confidence,
-                annualized_yield=opp.annualized_yield,
-                current_portfolio_exposure=self._get_current_exposure(),
-                available_balance=available_balance,
-            )
-        else:
-            target_size = self._settings.trading.max_position_size_usd
-
-        # Existing risk check (now with dynamic size)
-        can_open, reason = self._risk_manager.check_can_open(
-            symbol=opp.perp_symbol,
-            position_size_usd=target_size,
-            current_positions=self._position_manager.get_open_positions(),
-        )
-        ...
-```
-
-### FundingMonitor Auto-Persistence
-
-The `FundingMonitor._poll_once()` method optionally writes to the store:
-
-```python
-class FundingMonitor:
-    def __init__(
-        self,
-        exchange: ExchangeClient,
-        ticker_service: TickerService,
-        poll_interval: float = 30.0,
-        store: HistoricalDataStore | None = None,  # NEW
-    ) -> None:
-        ...
-        self._store = store
-
-    async def _poll_once(self) -> None:
-        # ... existing polling logic ...
-
-        # NEW: Persist to store (fire-and-forget, non-blocking)
-        if self._store is not None:
-            records = [
-                FundingRateRecord(symbol=fr.symbol, rate=fr.rate, timestamp=fr.next_funding_time)
-                for fr in self._funding_rates.values()
-            ]
-            try:
-                await self._store.store_funding_rates(records)
-            except Exception:
-                logger.warning("store_funding_rates_failed", exc_info=True)
-```
-
-### Configuration Extensions
-
-```python
-class SignalSettings(BaseSettings):
-    """Signal analysis parameters."""
-    model_config = SettingsConfigDict(env_prefix="SIGNAL_")
-
-    enabled: bool = True
-    short_ema_span: int = 3     # funding periods (24h)
-    long_ema_span: int = 9      # funding periods (3 days)
-    min_confidence: Decimal = Decimal("0.3")  # below this, skip entry
-    min_consecutive_periods: int = 2  # min periods above threshold
-    lookback_periods: int = 30   # how much history to analyze
-
-class DynamicSizingSettings(BaseSettings):
-    """Dynamic position sizing parameters."""
-    model_config = SettingsConfigDict(env_prefix="SIZING_")
-
-    enabled: bool = True
-    min_position_size_usd: Decimal = Decimal("200")
-    max_position_size_usd: Decimal = Decimal("2000")
-    max_multiplier: Decimal = Decimal("5")  # max conviction scaling
-    baseline_yield: Decimal = Decimal("0.10")  # 10% annualized = 1x
-    max_portfolio_pct: Decimal = Decimal("0.5")  # 50% max exposure
-
-class BacktestSettings(BaseSettings):
-    """Backtesting configuration."""
-    model_config = SettingsConfigDict(env_prefix="BACKTEST_")
-
-    db_path: str = "data/history.db"
-    default_lookback_days: int = 90
-    slippage_bps: Decimal = Decimal("5")  # basis points
-
-class AppSettings(BaseSettings):
-    # ... existing fields ...
-    signal: SignalSettings = SignalSettings()        # NEW
-    sizing: DynamicSizingSettings = DynamicSizingSettings()  # NEW
-    backtest: BacktestSettings = BacktestSettings()  # NEW
-```
-
-### Main Wiring Changes (`main.py`)
-
-```python
-async def _build_components(settings: AppSettings) -> dict[str, Any]:
-    # ... existing components 1-15 ...
-
-    # 16. Historical data store
-    store = HistoricalDataStore(settings.backtest.db_path)
-    await store.connect()
-
-    # 17. Historical data fetcher
-    fetcher = HistoricalDataFetcher(exchange_client, store)
-
-    # 18. Signal analyzer (if enabled)
-    signal_analyzer = None
-    if settings.signal.enabled:
-        signal_analyzer = SignalAnalyzer(store, settings.signal)
-
-    # 19. Dynamic position sizer (if enabled)
-    dynamic_sizer = None
-    if settings.sizing.enabled:
-        dynamic_sizer = DynamicPositionSizer(position_sizer, settings.sizing)
-
-    # Inject new deps into orchestrator
-    orchestrator.signal_analyzer = signal_analyzer
-    orchestrator.dynamic_sizer = dynamic_sizer
-
-    # Update funding monitor with store
-    funding_monitor._store = store  # or use setter method
-
-    return {
-        # ... existing components ...
-        "store": store,
-        "fetcher": fetcher,
-        "signal_analyzer": signal_analyzer,
-        "dynamic_sizer": dynamic_sizer,
-    }
-```
+1. **No new writes to SQLite.** All v1.2 features are read-only over existing historical data.
+2. **No changes to the trading loop.** Orchestrator, signal engine, execution path untouched.
+3. **BacktestEngine produces more output, same input.** Backward compatible via default empty list.
+4. **Dashboard is the only consumer.** No side effects on trading behavior.
 
 ---
 
 ## Patterns to Follow
 
-### Pattern 1: Extend Executor ABC for Backtesting
+### Pattern 1: Service Layer for Analytics (Existing Pattern)
 
-The v1.0 architecture's best feature is the swappable Executor. v1.1 adds a third implementation:
+**What:** `PairAnalyticsService` encapsulates all pair analysis logic, separate from route handlers.
 
-```
-Executor (ABC)
-  +-- PaperExecutor (simulated fills from live prices)
-  +-- LiveExecutor (real exchange orders)
-  +-- BacktestExecutor (fills from historical data)  # NEW
-```
+**Why:** Matches existing `FeeCalculator`, `OpportunityRanker`, and `analytics.metrics` -- pure computation classes that routes consume. Makes analytics independently testable.
 
-This pattern means the ENTIRE trading pipeline -- PositionManager, PnLTracker, FeeCalculator, analytics -- runs unchanged in all three modes. No special backtest logic leaking into production code.
-
-### Pattern 2: Optional Injection for Gradual Feature Rollout
-
-All new components are optional (`| None = None`). This means:
-- Features can be enabled/disabled via config without code changes
-- Each feature can be built and tested independently
-- v1.0 behavior is the default fallback
-- The orchestrator's existing tests pass without modification
-
-### Pattern 3: Store Boundary with Decimal Conversion
-
-All data crosses the SQLite boundary as strings:
-- **Write:** `str(decimal_value)` before INSERT
-- **Read:** `Decimal(row["value"])` after SELECT
-- Never store or retrieve raw floats
-
-This matches the project's existing Decimal-everywhere convention.
-
-### Pattern 4: Computation Modules Are Pure
-
-`SignalAnalyzer._compute_ema()`, `DynamicPositionSizer.calculate_target_size_usd()`, and analytics functions take data in, return results out. No I/O, no side effects, no state mutation. This makes them trivially testable with TDD (matching the project's existing test-first approach with 206+ tests).
-
-### Pattern 5: Time-Stepped Backtest Simulation
-
-The backtest does not try to replay real-time. It steps through discrete funding periods:
-
-```
-For each 8h period:
-  1. Set BacktestExecutor.current_time
-  2. Feed MockFundingMonitor with that period's rates
-  3. Feed MockTickerService with that period's prices
-  4. Call Orchestrator._autonomous_cycle() once
+```python
+# In routes/explore.py -- thin route handler
+@router.get("/explore/{symbol}", response_class=HTMLResponse)
+async def explore_pair_detail(request: Request, symbol: str) -> HTMLResponse:
+    templates = request.app.state.templates
+    pair_analytics = request.app.state.pair_analytics
+    summary = await pair_analytics.get_pair_summary(symbol)
+    return templates.TemplateResponse("explore_detail.html", {
+        "request": request, "summary": summary, "symbol": symbol,
+    })
 ```
 
-This is correct for funding rate arbitrage because:
-- Funding rates change on 8h boundaries (not continuously)
-- Position entry/exit decisions happen at cycle boundaries
-- No need for tick-level simulation (the strategy is inherently low-frequency)
+### Pattern 2: Additive BacktestResult Extension
+
+**What:** Add `trades: list[TradeLog]` with `field(default_factory=list)`.
+
+**Why:** Default empty list means all existing code (sweep, comparison, CLI, dashboard API) works without modification. This pattern is already proven in the codebase -- `ParameterSweep` replaces equity curves with `[]` for non-best results.
+
+### Pattern 3: Multi-Pair Backtest via Existing Background Task Pattern
+
+**What:** Reuse the `app.state.backtest_tasks` dict and polling pattern from `api.py`.
+
+**Why:** The existing pattern (POST creates task, returns task_id, GET polls for completion) handles the async lifecycle correctly and is already integrated with the backtest page's HTMX polling.
+
+```python
+async def _run_multi_pair_task(
+    task_id: str, app_state: Any,
+    config_template: BacktestConfig, symbols: list[str], db_path: str,
+) -> None:
+    results = {}
+    for i, symbol in enumerate(symbols):
+        config = config_template.with_overrides(symbol=symbol)
+        result = await run_backtest(config, db_path)
+        results[symbol] = result.to_dict()
+        app_state.backtest_tasks[task_id]["progress"] = {
+            "current": i + 1, "total": len(symbols), "current_symbol": symbol,
+        }
+    app_state.backtest_tasks[task_id]["result"] = results
+    app_state.backtest_tasks[task_id]["status"] = "complete"
+```
+
+### Pattern 4: Chart.js Reuse for New Visualizations
+
+**What:** Use Chart.js CDN (already loaded via `base.html`) for all new charts.
+
+**Chart types needed:**
+
+| Visualization | Chart.js Type | Example in codebase |
+|---------------|---------------|---------------------|
+| Funding rate history | Line chart | `partials/equity_curve.html` |
+| Rate distribution | Bar chart (histogram) | `partials/param_heatmap.html` (bar variant) |
+| Trade timeline | Scatter chart with markers | New |
+| Multi-pair comparison | Grouped bar chart | New |
+| Net yield overview | Horizontal bar chart | New |
+
+### Pattern 5: Lazy Loading via HTMX for Heavy Content
+
+**What:** Load chart data lazily via HTMX `hx-trigger="load"` on chart containers.
+
+**Why:** Page shows stats card immediately. Charts load in parallel without blocking. Already used conceptually in backtest page (polling for results).
+
+```html
+<div hx-get="/api/pairs/{{ symbol }}/chart-partial"
+     hx-trigger="load" hx-swap="innerHTML">
+    <div class="animate-pulse h-64 bg-dash-card rounded"></div>
+</div>
+```
 
 ---
 
 ## Anti-Patterns to Avoid
 
-### Anti-Pattern 1: Separate Backtest Strategy Implementation
+### Anti-Pattern 1: Modifying BacktestEngine Core Loop Structure
 
-**What goes wrong:** Writing backtest logic that duplicates the orchestrator's decision-making.
-**Why it happens:** Seems simpler than wiring up the real components.
-**Consequence:** Backtest results do not reflect live behavior. The whole point of backtesting is defeated.
-**Prevention:** Always use the BacktestExecutor through the real Orchestrator. Never write `if backtesting:` branches in strategy code.
+**What:** Restructuring the engine's `run()` method to accommodate trade logging.
+**Why bad:** The 430-line engine is well-tested. Structural changes risk regressions.
+**Instead:** Add trade recording as thin instrumentation (~30 lines) around existing open/close blocks. Decision flow stays identical.
 
-### Anti-Pattern 2: Loading All Historical Data Into Memory
+### Anti-Pattern 2: Sending Raw Rate Arrays to Browser for Histograms
 
-**What goes wrong:** `SELECT * FROM funding_rates` into a list for an entire year.
-**Why it happens:** Simpler code.
-**Consequence:** Memory exhaustion for large datasets (500+ symbols x 365 days x 3 rates/day = 500K+ records).
-**Prevention:** Always query with time bounds. Use generators/async iterators for large result sets. The `SignalAnalyzer` only needs the last 30 periods per symbol, not the full history.
+**What:** Send 2500+ raw funding rate values to the browser for client-side histogram computation.
+**Why bad:** Unnecessary payload size and client-side computation.
+**Instead:** Compute histogram bins server-side (Python), send only 20-30 bin counts as JSON. Chart.js renders pre-computed data.
 
-### Anti-Pattern 3: Coupling Signal Logic to Orchestrator
+### Anti-Pattern 3: Adding CoinGecko as a Required Dependency
 
-**What goes wrong:** Putting trend analysis computations inside `Orchestrator._autonomous_cycle()`.
-**Why it happens:** Quick to implement.
-**Consequence:** Orchestrator becomes untestable monolith. Cannot reuse signals in backtest or dashboard.
-**Prevention:** `SignalAnalyzer` is a standalone component. Orchestrator calls `analyze_batch()` and gets results. No computation leaks into orchestrator.
+**What:** Making CoinGecko API required for pair rankings.
+**Why bad:** Adds external API dependency, rate limits, network failure mode.
+**Instead:** Use volume-based ranking from existing `tracked_pairs.last_volume_24h`. CoinGecko is optional enrichment.
 
-### Anti-Pattern 4: Breaking the PositionSizer Contract
+### Anti-Pattern 4: Creating Separate Database for Backtest Results
 
-**What goes wrong:** `DynamicPositionSizer` bypasses `PositionSizer.calculate_matching_quantity()` and computes quantities directly.
-**Why it happens:** Seems more direct.
-**Consequence:** Loses exchange constraint validation (qty_step, min_qty, min_notional). Orders get rejected.
-**Prevention:** `DynamicPositionSizer` computes `target_size_usd`, then delegates quantity calculation to the existing `PositionSizer` with that target.
+**What:** Persisting backtest results to a new SQLite database.
+**Why bad:** Adds lifecycle complexity for ephemeral data.
+**Instead:** Keep results in memory (existing `app.state.backtest_tasks` pattern). Add `trades` to existing result dict.
+
+### Anti-Pattern 5: Computing Statistics on Every Request
+
+**What:** Query funding rates and compute statistics on every API call.
+**Why bad:** Unnecessarily repeats computation for data that changes at most every 8 hours.
+**Instead:** For the current scale (~20 pairs, ~2500 rates/pair), on-demand computation is fast enough (<50ms). If needed later, add TTL-based caching in `PairAnalyticsService`.
 
 ---
 
-## Suggested Build Order
+## New HistoricalDataStore Methods
 
-The build order is determined by dependency chains and the ability to validate each layer independently.
+Additional read methods needed. No schema changes -- existing tables and indexes support all queries.
 
-### Phase 1: Data Foundation
+```python
+# Added to src/bot/data/store.py
 
-**Build:** `HistoricalDataStore` + `HistoricalDataFetcher` + `ExchangeClient` extensions
-**Why first:** Everything else depends on historical data. Without persistence, signal analysis and backtesting have nothing to work with.
-**Validates:** Data can be fetched from Bybit, stored in SQLite, and retrieved correctly.
-**Test approach:** Unit tests with mock exchange responses. Integration test fetching real data from Bybit testnet.
+async def get_funding_rate_stats(self, symbol: str) -> dict:
+    """Aggregate stats for a symbol using SQLite AVG/COUNT/MIN/MAX.
 
-### Phase 2: Signal Analysis
+    Returns: avg_rate, count, min_rate, max_rate,
+             positive_rate_count, earliest_ms, latest_ms.
+    """
+    ...
 
-**Build:** `SignalAnalyzer` + `SignalSettings` + models (`SignalResult`, `TrendDirection`)
-**Why second:** Pure computation on stored data. Does not require backtest engine. Can be validated visually against known market data.
-**Validates:** Trend detection, stability metrics, confidence scoring produce sensible outputs.
-**Test approach:** TDD with known data sets. Feed in synthetic funding rate sequences with known trends, verify correct signals.
+async def get_all_pair_stats(self) -> list[dict]:
+    """Aggregate stats across all tracked pairs via GROUP BY.
 
-### Phase 3: Dynamic Position Sizing
-
-**Build:** `DynamicPositionSizer` + `DynamicSizingSettings`
-**Why third:** Depends on signal confidence from Phase 2. Pure computation, easily tested.
-**Validates:** Conviction scaling produces correct sizes. Exchange constraints still respected (via delegation to existing `PositionSizer`).
-**Test approach:** TDD. Parameterized tests: low confidence -> small size, high confidence -> large size, respects caps.
-
-### Phase 4: Orchestrator Integration
-
-**Build:** Modify `Orchestrator` to use `SignalAnalyzer` + `DynamicPositionSizer`. Modify `FundingMonitor` for auto-persistence. Update `main.py` wiring.
-**Why fourth:** All new components are ready and tested. This phase wires them together.
-**Validates:** End-to-end live flow works with signals and dynamic sizing. Existing tests still pass (optional injection).
-**Test approach:** Integration tests with mocked components. Verify existing orchestrator tests pass unchanged.
-
-### Phase 5: Backtest Engine
-
-**Build:** `BacktestExecutor` + `BacktestEngine` + `BacktestSettings` + `BacktestResult`
-**Why fifth:** Requires all previous phases. The backtest reuses the full component graph.
-**Validates:** Strategy replay produces results consistent with known outcomes. Compare backtest of v1.0-style simple threshold vs v1.1 signal-enhanced strategy.
-**Test approach:** Backtest known period with known outcomes. Verify P&L matches manual calculation.
-
-### Phase 6: Dashboard Extensions
-
-**Build:** Backtest results panel, signal indicators on opportunity table.
-**Why last:** Display layer for features built in previous phases. Not on critical path.
-**Validates:** User can trigger backtests, view results, see signal confidence on opportunities.
-
-### Dependency Graph
-
-```
-Phase 1: Data Foundation ──────────────┐
-                                        │
-Phase 2: Signal Analysis ◄─────────────┤
-                                        │
-Phase 3: Dynamic Sizing ◄──────────────┤ (needs signals)
-                                        │
-Phase 4: Orchestrator Integration ◄────┤ (needs signals + sizing)
-                                        │
-Phase 5: Backtest Engine ◄─────────────┘ (needs everything)
-
-Phase 6: Dashboard ◄── Phase 4, 5 (display layer)
+    Single query for the rankings table. Returns: symbol, avg_rate,
+    count, earliest_ms, latest_ms.
+    """
+    ...
 ```
 
-Phases 2 and 3 could be built in parallel since they only depend on Phase 1 and Phase 3 uses Phase 2's output type but not its implementation. However, building sequentially is cleaner for testing.
+**Note on Decimal precision in aggregation:** SQLite's `AVG()` operates on REAL (float64). For aggregate descriptive statistics (mean, std), float64 precision is acceptable. Raw funding rate values remain stored as TEXT/Decimal for monetary precision.
+
+**Confidence:** HIGH -- standard SQL on existing indexed columns.
+
+---
+
+## File Organization
+
+### New Files
+
+```
+src/bot/
+  analytics/
+    pair_analytics.py          # PairAnalyticsService + PairSummary/PairRanking/DistributionBin
+  data/
+    market_cap.py              # MarketCapProvider
+  dashboard/
+    routes/
+      explore.py               # Pair Explorer page routes + API endpoints
+      strategy.py              # Strategy Builder page route + multi-pair API
+      decision.py              # Decision View page route
+    templates/
+      explore.html             # Pair Explorer listing page
+      explore_detail.html      # Pair detail deep-dive page
+      strategy.html            # Strategy Builder page
+      decision.html            # Decision View page
+      partials/
+        pair_rankings_table.html
+        pair_rate_chart.html
+        pair_distribution.html
+        pair_stats_card.html
+        strategy_builder_form.html
+        multi_pair_results.html
+        trade_log_table.html
+        decision_summary.html
+```
+
+### Modified Files
+
+```
+src/bot/
+  backtest/
+    models.py                  # Add TradeLog dataclass, extend BacktestResult
+    engine.py                  # Add trade recording (~30-40 lines of instrumentation)
+  data/
+    store.py                   # Add get_funding_rate_stats(), get_all_pair_stats()
+  dashboard/
+    app.py                     # Register new routers
+    templates/
+      base.html                # Add nav links for Explore, Strategy, Decision
+  main.py                      # Inject PairAnalyticsService + MarketCapProvider
+```
+
+### Unchanged Files (verified against codebase)
+
+```
+src/bot/
+  orchestrator.py              # NO CHANGES -- trading loop untouched
+  signals/                     # NO CHANGES -- signal engine untouched
+  execution/                   # NO CHANGES -- executor pattern untouched
+  position/                    # NO CHANGES -- position management untouched
+  pnl/                         # NO CHANGES -- P&L tracking untouched
+  risk/                        # NO CHANGES -- risk management untouched
+  exchange/                    # NO CHANGES -- exchange client untouched
+  market_data/                 # NO CHANGES -- funding monitor untouched
+  config.py                    # NO CHANGES -- all needed config already exists
+  models.py                    # NO CHANGES -- trading models untouched
+  backtest/runner.py           # NO CHANGES -- run_backtest() interface unchanged
+  backtest/sweep.py            # NO CHANGES -- equity curve discard handles trades
+  backtest/executor.py         # NO CHANGES
+  backtest/data_wrapper.py     # NO CHANGES
+```
 
 ---
 
 ## Scalability Considerations
 
-| Concern | Current (v1.0) | After v1.1 | Future Growth |
-|---------|----------------|------------|---------------|
-| **Data storage** | In-memory only | SQLite file (sufficient for 100K+ records) | Could migrate to PostgreSQL if multi-instance |
-| **Backtest speed** | N/A | Sequential, single-threaded (fine for 90-day runs) | Could parallelize parameter grid with asyncio.gather |
-| **Signal computation** | N/A | Per-symbol, synchronous within batch | Could cache computed signals with TTL |
-| **Memory usage** | All state in-memory | Historical data in SQLite, queried as needed | Already bounded by query limits |
-| **API rate limits** | ccxt rate limiter | Same + conservative delay in fetcher | Sufficient for current scale |
+| Concern | Current (~20 pairs, 50K records) | At 50 pairs, 200K records | At 200 pairs, 2M records |
+|---------|----------------------------------|---------------------------|--------------------------|
+| Pair analytics queries | <50ms per pair (indexed) | <100ms | Pre-computed summary table |
+| Rankings computation | <100ms (GROUP BY on 50K rows) | <200ms | Cache with 1-hour TTL |
+| Distribution (Python binning) | <20ms per pair | <50ms | Still fast (one symbol) |
+| Multi-pair backtest (20 pairs) | ~20s sequential | ~50s for 50 | Background task with progress |
+| Trade log serialization | <1ms for ~50 trades | <5ms | Paginate API response |
+| SQLite concurrent reads | WAL mode handles well | WAL mode handles well | Still fine -- reads only |
+
+No optimization needed for initial implementation at current scale.
 
 ---
 
-## File Structure After v1.1
+## Dependency Graph and Build Order
 
 ```
-src/bot/
-  __init__.py
-  config.py             # MODIFIED: add Signal/Sizing/Backtest settings
-  models.py             # MODIFIED: add signal fields to OpportunityScore
-  orchestrator.py       # MODIFIED: add signal/sizing integration
-  main.py               # MODIFIED: wire new components
-  exceptions.py
-  logging.py
-  data/                 # NEW package
-    __init__.py
-    store.py            # HistoricalDataStore (aiosqlite)
-    fetcher.py          # HistoricalDataFetcher
-    models.py           # FundingRateRecord, KlineRecord, etc.
-  strategy/             # NEW package
-    __init__.py
-    signal_analyzer.py  # SignalAnalyzer
-    dynamic_sizer.py    # DynamicPositionSizer
-  backtest/             # NEW package
-    __init__.py
-    engine.py           # BacktestEngine
-    executor.py         # BacktestExecutor (implements Executor ABC)
-    result.py           # BacktestResult
-  analytics/
-    metrics.py          # EXISTING (reused by backtest)
-  exchange/
-    client.py           # MODIFIED: add new abstract methods
-    bybit_client.py     # MODIFIED: implement new methods
-    types.py
-  execution/
-    executor.py         # EXISTING (BacktestExecutor implements this)
-    paper_executor.py
-    live_executor.py
-  market_data/
-    funding_monitor.py  # MODIFIED: optional store persistence
-    opportunity_ranker.py
-    ticker_service.py
-  position/
-    sizing.py           # EXISTING (wrapped by DynamicPositionSizer)
-    manager.py
-    delta_validator.py
-  pnl/
-    fee_calculator.py
-    tracker.py
-  risk/
-    emergency.py
-    manager.py
-  dashboard/
-    app.py
-    routes/             # MODIFIED: add backtest + signal routes
-    update_loop.py
+Phase 1: Analytics Foundation (no dashboard dependencies)
+  |-- PairAnalyticsService + data models (PairSummary, PairRanking, etc.)
+  |-- HistoricalDataStore new read methods (get_funding_rate_stats, get_all_pair_stats)
+  |-- TradeLog dataclass in backtest/models.py
+  |-- Unit tests for analytics computations
+
+Phase 2: Backtest Enhancement (depends on TradeLog from Phase 1)
+  |-- BacktestEngine trade recording instrumentation (~30 lines)
+  |-- BacktestResult.trades field extension
+  |-- Verify existing backtest tests still pass
+
+Phase 3: Pair Explorer UI (depends on PairAnalyticsService from Phase 1)
+  |-- /explore page with rankings table
+  |-- /explore/{symbol} detail page with charts
+  |-- MarketCapProvider (volume proxy)
+  |-- Chart.js line chart + histogram partials
+  |-- Nav links in base.html
+
+Phase 4: Strategy Builder + Trade Replay (depends on Phases 2 + 3)
+  |-- /strategy page with multi-pair selection form
+  |-- Multi-pair backtest API endpoint
+  |-- Trade log table partial
+  |-- Multi-pair comparison visualization
+
+Phase 5: Decision View (depends on Phases 3 + 4)
+  |-- /decision summary page
+  |-- Aggregation of pair analytics + best backtest results
+  |-- Recommendation display
+```
+
+**Critical path:** Phase 1 -> Phase 2 -> Phase 4 -> Phase 5
+
+**Parallel opportunities:**
+- Phase 3 (pair explorer UI) can be built in parallel with Phase 2 (backtest enhancement) since they share only the Phase 1 foundation
+- Within Phase 3, MarketCapProvider is independent of the UI templates
+
+**Why this order:**
+1. Analytics service first -- both explorer and strategy builder depend on it
+2. Backtest enhancement before strategy builder -- trade replay is the core differentiator
+3. Decision view last -- it aggregates data from both explorer and strategy builder
+
+---
+
+## Integration with app.state
+
+Following the existing pattern in `main.py`:
+
+```python
+# In main.py startup (additions to existing wiring)
+
+# New v1.2 services
+pair_analytics = PairAnalyticsService(data_store=data_store)
+market_cap_provider = MarketCapProvider(data_store=data_store)
+
+# Inject into app state (same pattern as existing components)
+dashboard_app.state.pair_analytics = pair_analytics
+dashboard_app.state.market_cap_provider = market_cap_provider
+```
+
+In `app.py`:
+
+```python
+# Register new routers (same pattern as existing)
+from bot.dashboard.routes import explore, strategy, decision
+app.include_router(explore.router)
+app.include_router(strategy.router)
+app.include_router(decision.router)
 ```
 
 ---
 
 ## Sources
 
-- [Bybit API: Get Funding Rate History](https://bybit-exchange.github.io/docs/v5/market/history-fund-rate) -- official endpoint documentation, verified 2026-02-12
-- [Bybit API: Get Kline](https://bybit-exchange.github.io/docs/v5/market/kline) -- official endpoint documentation, verified 2026-02-12
-- [Bybit API: Get Mark Price Kline](https://bybit-exchange.github.io/docs/v5/market/mark-kline) -- official endpoint documentation, verified 2026-02-12
-- [ccxt GitHub: Bybit funding rate history issues](https://github.com/ccxt/ccxt/issues/17854) -- pagination limitations documented
-- [ccxt GitHub: fetch_funding_rate_history since/limit](https://github.com/ccxt/ccxt/issues/15990) -- parameter handling quirks
-- [aiosqlite PyPI](https://pypi.org/project/aiosqlite/) -- async SQLite for Python
-- [50shadesofgwei/funding-rate-arbitrage backtesting framework](https://deepwiki.com/50shadesofgwei/funding-rate-arbitrage/5.1-backtesting-framework) -- reference architecture for funding rate backtesting
-- [QuantStart: Event-Driven Backtesting with Python](https://www.quantstart.com/articles/Event-Driven-Backtesting-with-Python-Part-I/) -- foundational pattern for custom backtest engines
-- [Kelly Criterion for position sizing](https://www.pyquantnews.com/the-pyquant-newsletter/use-kelly-criterion-optimal-position-sizing) -- position sizing theory
-- Existing codebase analysis: `src/bot/orchestrator.py`, `src/bot/execution/executor.py`, `src/bot/position/sizing.py`, `src/bot/main.py`
+- Codebase analysis: `src/bot/` (9,540 LOC Python, 1,320 LOC HTML, 286 tests)
+  - `orchestrator.py` (802 lines) -- trading loop, untouched
+  - `backtest/engine.py` (593 lines) -- primary modification target for trade logging
+  - `backtest/models.py` (240 lines) -- extension target for TradeLog
+  - `data/store.py` (326 lines) -- extension target for aggregate queries
+  - `dashboard/app.py` (86 lines) -- router registration point
+  - `dashboard/routes/pages.py` (115 lines) -- page route pattern to follow
+  - `dashboard/routes/api.py` (519 lines) -- API + background task pattern to follow
+  - `dashboard/templates/base.html` (56 lines) -- navigation extension point
+- [HTMX + FastAPI dashboard patterns](https://testdriven.io/blog/fastapi-htmx/)
+- [FastAPI HTMX hypermedia applications](https://medium.com/@strasbourgwebsolutions/fastapi-as-a-hypermedia-driven-application-w-htmx-jinja2templates-644c3bfa51d1)
+- [CoinGecko API coins/markets endpoint](https://docs.coingecko.com/reference/coins-markets)
+- [Bybit tickers API for volume data](https://bybit-exchange.github.io/docs/v5/market/tickers)
+- [SQLite schema design for financial data](https://medium.com/data-science/how-to-store-financial-market-data-for-backtesting-84b95fc016fc)
+- [Backtesting trade-level output patterns](https://www.quantstart.com/articles/backtesting-systematic-trading-strategies-in-python-considerations-and-open-source-frameworks/)
 
 ## Confidence Assessment
 
 | Area | Confidence | Reason |
 |------|------------|--------|
-| Bybit API integration | HIGH | Verified against official API docs |
-| Executor pattern extension | HIGH | Proven pattern in existing codebase, natural extension |
-| Signal analysis approach | MEDIUM | EMA crossover is standard but funding rate patterns need empirical validation |
-| Dynamic sizing model | MEDIUM | Conviction scaling is sound but parameters need backtest tuning |
-| aiosqlite for storage | HIGH | Well-established library, verified active maintenance |
-| Build order | HIGH | Based on dependency analysis of actual codebase |
-| Custom backtest vs framework | HIGH | Funding rate arb requires custom data flow that frameworks do not support |
+| Component boundaries | HIGH | Verified against existing codebase with line-level references |
+| BacktestEngine enhancement | HIGH | Existing code paths clearly identified, ~30 lines change |
+| Dashboard page patterns | HIGH | Exact pattern reuse from backtest page and main dashboard |
+| PairAnalyticsService design | HIGH | Standard service layer pattern, SQL on indexed columns |
+| MarketCapProvider (volume) | HIGH | Data already exists in tracked_pairs table |
+| MarketCapProvider (CoinGecko) | MEDIUM | Symbol mapping needs validation, external dependency |
+| Build order | HIGH | Based on actual dependency analysis of imports and data flow |
+| Scalability estimates | MEDIUM | Based on query analysis, not measured |

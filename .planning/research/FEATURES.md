@@ -1,251 +1,289 @@
-# Feature Landscape: Strategy Intelligence for Funding Rate Arbitrage
+# Feature Landscape: Strategy Discovery & Decision Support
 
-**Domain:** Strategy intelligence layer for crypto funding rate arbitrage (backtesting, trend analysis, dynamic sizing)
-**Researched:** 2026-02-12
-**Confidence:** MEDIUM -- verified against Bybit API docs, academic research, and industry practices; some specifics (e.g., exact ccxt pagination behavior) need implementation-time validation
+**Domain:** Pair analysis, trade-level backtest results, strategy building workflow, decision dashboard for funding rate arbitrage
+**Researched:** 2026-02-13
+**Confidence:** MEDIUM-HIGH -- features informed by analysis of existing tools (CoinGlass, Loris Tools, FundingView, Sharpe AI, Freqtrade), the project's existing codebase, and domain knowledge of funding rate arbitrage workflows.
 
 ## Scope
 
-This document covers features for v1.1 ONLY -- the strategy intelligence milestone. It assumes the following v1.0 features are already built and working:
+This document covers features for v1.2 ONLY -- the Strategy Discovery & Decision Support milestone. It assumes all v1.0 and v1.1 features are already built and working:
 
-- Real-time funding rate scanning (FundingMonitor, 30s REST polling)
-- Simple threshold-based entry/exit (OpportunityRanker with min_rate / exit_funding_rate)
-- Delta-neutral execution (spot buy + perp short via swappable Executor ABC)
-- Risk management (per-pair limits, max positions, emergency stop, margin monitoring)
-- Paper trading with identical logic path
-- Performance analytics (Sharpe, drawdown, win rate)
-- Web dashboard with 7 panels and runtime config
+**Existing v1.0:** Real-time funding rate scanning, delta-neutral execution, risk management, paper trading, web dashboard (8 panels), runtime config.
+**Existing v1.1:** Historical data pipeline (SQLite, 50K+ records), composite signal engine (trend, persistence, basis, volume), backtesting with parameter sweep/equity curve/heatmap/comparison, dynamic position sizing.
+
+**The problem this milestone solves:** The user can see rates and run backtests, but cannot tell which pairs are worth trading, cannot inspect individual backtest trades, and has no guided workflow for building intuition about what "good" looks like in funding rate arbitrage. The dashboard shows data without context.
 
 ---
 
 ## Table Stakes
 
-Features that a strategy intelligence upgrade MUST have. Without these, "smarter strategy" is just marketing over the existing v1.0 threshold logic.
+Features users expect from a strategy discovery tool. Missing any of these means the milestone fails to solve the core problem: "I don't know which pairs to trade or why."
 
-### Backtesting Capability
+### Pair Explorer
 
-| Feature | Why Expected | Complexity | Depends On (v1.0) | Notes |
-|---------|--------------|------------|-------------------|-------|
-| **Historical funding rate data ingestion** | Cannot backtest without historical data; Bybit API provides it via `/v5/market/history-fund-rate` (200 records/page, paginated by endTime) | Medium | ExchangeClient (ccxt) | Must handle pagination: 200 records max per request, requires iterative fetching with sliding endTime. For 1 year of 8h data = ~1095 records = 6 API calls per symbol. Store as local Parquet/SQLite. |
-| **Replay simulation engine** | Core of backtesting -- feed historical data through existing strategy logic in chronological order | High | Orchestrator._autonomous_cycle, OpportunityRanker | Event-driven replay: iterate through timestamped funding rate snapshots, invoke the same rank-decide-execute pipeline. Must prevent lookahead bias (no future data accessible at decision time). |
-| **Fee-accurate P&L simulation** | Backtests without realistic fees produce dangerously optimistic results; research shows 17% of apparent opportunities lose money after transaction costs | Low | FeeCalculator, PnLTracker | Already built -- PnLTracker.record_open/close and FeeCalculator handle this. Backtest engine just needs to invoke them. |
-| **Strategy parameter sweep** | Users need to test different min_rate, exit_rate, min_holding_periods to find what works | Medium | Config system (AppSettings, TradingSettings, RiskSettings) | Grid search over parameter combinations. Each combination runs a full replay. Output: parameter -> performance metrics table. |
-| **Backtest results visualization** | Raw numbers are hard to interpret; need equity curve, trade markers, parameter heatmap | Low | Dashboard (existing Jinja2 + HTMX stack) | Render results on a new dashboard page. Equity curve is a cumulative P&L line chart. Parameter heatmap shows Sharpe/return across min_rate x exit_rate grid. |
+| Feature | Why Expected | Complexity | Depends On | Notes |
+|---------|--------------|------------|------------|-------|
+| **Pair profitability ranking table** | Users need a single view showing which of the ~20 tracked pairs have been historically profitable. CoinGlass, FundingView, and Loris Tools all center on sortable pair tables as their primary UI. Without this, users must run 20 separate backtests to compare pairs. | Medium | `HistoricalDataStore.get_funding_rates()`, backtest engine | Query historical funding rates for all tracked pairs, compute per-pair metrics (avg rate, total funding collected, rate stability, fee-adjusted yield). Display as sortable table. Pre-computed, not requiring full backtest per pair -- use aggregate statistics from stored funding rate data. |
+| **Per-pair funding rate time series chart** | Seeing the rate history for a specific pair is the most basic analysis step. Loris Tools and CoinGlass both feature per-pair interactive charts as their core offering. Users need to see if a pair's rate is currently high/low relative to its own history. | Low | `HistoricalDataStore.get_funding_rates()`, Chart.js (already used) | Render line chart of funding rate over time for selected pair. Add reference lines for mean and entry threshold. Existing Chart.js + HTMX pattern from equity curve applies directly. |
+| **Rate distribution histogram** | Users with no funding rate experience need to understand "is 0.01% good or bad?" A distribution shows where the current rate falls relative to history. This is the single most important context feature for a new user. | Low | `HistoricalDataStore.get_funding_rates()`, Chart.js | Histogram of historical rates for a pair with the current rate marked. Shows percentile position. Can reuse Chart.js bar chart type. |
+| **Pair comparison view** | Users need to compare 2-3 pairs side-by-side to make selection decisions. FundingView and CryptoFundingTracker both offer multi-pair comparison as a core feature. | Medium | Per-pair metrics computation, Chart.js | Overlay rate time series for multiple pairs on one chart. Side-by-side metrics table. Select pairs from the ranking table to add to comparison. |
+| **Fee-adjusted yield calculator** | Raw funding rates are misleading without fee context. The existing `OpportunityRanker` already computes net yield and annualized yield after amortized fees, but this is only visible in the bot's internal ranking, not exposed to the user. Users must see net yield, not gross rate. | Low | `OpportunityRanker.rank_opportunities()` logic, `FeeSettings` | Display alongside raw rate: net yield per period, annualized yield after fees, breakeven holding periods. Already computed in v1.0 -- just surface it in the UI. |
 
-### Funding Rate Trend Analysis
+### Trade-Level Backtest Results
 
-| Feature | Why Expected | Complexity | Depends On (v1.0) | Notes |
-|---------|--------------|------------|-------------------|-------|
-| **Funding rate history buffer** | Current FundingMonitor only keeps latest snapshot per symbol; trend analysis requires time-series history | Low | FundingMonitor._funding_rates | Add a rolling window buffer (e.g., deque of last N snapshots per symbol). Research shows autocorrelation is weak beyond 3 funding periods (~24h for 8h intervals), so 24-48 periods is sufficient. |
-| **Rate trend direction detection** | "Is the rate rising, falling, or stable?" -- the most basic signal beyond absolute threshold. Enter when rising, avoid when falling. | Low | Funding rate history buffer (new) | Simple: compare current rate to moving average of last N periods. Or linear regression slope over window. No ML needed. |
-| **Rate persistence scoring** | How long has this rate stayed elevated? Research shows mean-reversion is real (Ornstein-Uhlenbeck dynamics), so rates that just spiked are riskier than rates sustained for 3+ periods | Medium | Funding rate history buffer (new) | Count consecutive periods above entry threshold. Weight recent persistence higher. Academic research confirms DAR models outperform no-change baseline for next-period prediction. |
-| **Composite entry signal** | Replace single threshold with multi-factor score: rate level + trend direction + persistence. This is the minimum viable "smarter entry" | Medium | Rate trend detection, persistence scoring, OpportunityRanker | Extend OpportunityScore to include signal_score. Composite: weighted sum of normalized rate, trend slope, persistence count. Replaces simple `rate > min_rate` check. |
+| Feature | Why Expected | Complexity | Depends On | Notes |
+|---------|--------------|------------|------------|-------|
+| **Individual trade log table** | The current backtest returns only aggregate metrics (total trades, net P&L, Sharpe). Users cannot see WHEN trades happened, HOW LONG they lasted, or WHICH ones were winners/losers. Freqtrade, TradesViz, and every serious backtesting tool show per-trade details. This is the most critical gap in the current backtest output. | Medium | `BacktestEngine`, `PnLTracker.get_closed_positions()` | The engine already processes individual trades through `PnLTracker`, which records `PositionPnL` with entry/exit fees, funding payments, timestamps. The data EXISTS but is discarded after aggregate metrics are computed. Need to capture the list of `PositionPnL` objects and serialize them in `BacktestResult`. |
+| **Trade-on-chart visualization** | Users need to see entry/exit points overlaid on the funding rate time series to understand "why did the strategy enter here?" TradesViz and TradingView both show trade markers on price charts. For funding rate arb, the relevant chart is the funding rate (not price). | Medium | Individual trade log (above), per-pair funding rate chart | Render entry (green triangle up) and exit (red triangle down) markers on the funding rate time series chart at the timestamps from the trade log. Chart.js annotation plugin handles this. |
+| **Per-trade P&L breakdown** | For each trade: entry time, exit time, duration, number of funding periods captured, total funding collected, total fees paid, net P&L. Users learning funding rate arb need to see the mechanics of each trade to build intuition about how funding payments accumulate vs fees. | Low | `PositionPnL` dataclass (already has all fields) | `PositionPnL` already stores `funding_payments` (list of `FundingPayment` with amount, rate, mark_price, timestamp), `entry_fee`, `exit_fee`, `opened_at`, `closed_at`. Just need to serialize this to JSON and render in a table with expandable rows. |
+| **Win/loss trade categorization** | Color-code trades by profitability. Show distribution of wins vs losses. Let users filter to only losing trades to understand what went wrong. | Low | Per-trade P&L breakdown (above) | Compute net P&L per trade (total funding - total fees). Tag as win/loss. Add summary row: X wins, Y losses, avg win size, avg loss size, largest win, largest loss. |
 
-### Dynamic Position Sizing
+### Decision Context Dashboard
 
-| Feature | Why Expected | Complexity | Depends On (v1.0) | Notes |
-|---------|--------------|------------|-------------------|-------|
-| **Conviction-scaled sizing** | Higher funding rate = higher confidence = larger position. Research shows this alone improves Sharpe from 1.4 to 2.3 vs. static sizing. | Medium | PositionSizer, composite entry signal (new) | Scale position size linearly or via Kelly fraction between min_size and max_position_size_per_pair based on signal_score. Fractional Kelly (quarter to half) recommended for crypto volatility. |
-| **Risk-constrained sizing** | Conviction scaling without risk guardrails is dangerous. Must cap total exposure and per-pair exposure. | Low | RiskManager.check_can_open | Already partially built -- max_position_size_per_pair and max_simultaneous_positions exist. Add: total_portfolio_exposure_limit (sum of all position sizes as % of equity). |
-| **Drawdown-responsive sizing** | Reduce position sizes when portfolio is in drawdown. Standard risk management practice. | Medium | Analytics (max_drawdown), PnLTracker.get_portfolio_summary | If current drawdown > X% of peak equity, scale all new positions by (1 - drawdown_ratio). Prevents doubling down during losing streaks. |
+| Feature | Why Expected | Complexity | Depends On | Notes |
+|---------|--------------|------------|------------|-------|
+| **"Is this rate good?" contextual indicator** | For each pair showing a funding rate, display whether that rate is above/below its historical average, what percentile it is in, and whether it is trending up or down. This is the single most impactful feature for a new user who sees "0.0103%" and has no idea if that is good. | Medium | `HistoricalDataStore`, existing funding rates panel | Enhance the existing funding rates panel (DASH-02) with columns: historical avg rate, percentile rank, trend direction (from v1.1 signal engine). Color-code: green = above 75th percentile and rising, yellow = average, red = below average or falling. |
+| **Signal score breakdown display** | The composite signal engine already computes rate_level, trend_score, persistence, basis_score. These are computed but never shown to the user. Display them so the user understands WHY a pair scored high/low. | Low | `CompositeSignal` dataclass, `SignalEngine.score_opportunities()` | The `CompositeSignal` already has all sub-scores. Render as a small radar/spider chart or horizontal bar breakdown next to each pair in the opportunity table. Existing HTMX polling can deliver updates. |
+| **Recommended action label** | For each tracked pair, show a clear label: "Strong opportunity", "Moderate", "Not recommended", "Insufficient data". This is opinionated decision support -- not just showing data but interpreting it. | Low | Composite signal score, historical context | Map signal score + historical percentile to a label. Simple thresholds: score >= 0.6 AND rate > 75th percentile = "Strong". This is the feature that transforms data display into decision support. |
 
 ---
 
 ## Differentiators
 
-Features that move this from "competent backtested strategy" to "sophisticated arbitrage system." Not required for v1.1 to be valuable, but each meaningfully improves risk-adjusted returns.
+Features that set this apart from just another data dashboard. Not expected by users, but significantly increase the tool's value for learning and strategy development.
 
-### Enhanced Market Context Signals
-
-| Feature | Value Proposition | Complexity | Depends On | Notes |
-|---------|-------------------|------------|------------|-------|
-| **Spot-perp basis spread monitoring** | The basis (perp price - spot price) is a direct measure of market sentiment. Widening basis precedes funding rate increases. Z-score of basis > 2 is a confirmed entry signal in academic literature. | Medium | TickerService (already caches spot + perp prices) | Calculate basis = (perp_price - spot_price) / spot_price. Maintain rolling z-score. Use as additional signal in composite score. Cheap to compute -- prices are already cached. |
-| **Open interest change tracking** | Surging OI + rising rates = genuine demand, not a spike. Falling OI + high rates = crowded exit about to happen. | Medium | New: requires Bybit `/v5/market/open-interest` API calls via ccxt `fetchOpenInterest` | Poll OI on same interval as funding rates. Track OI delta (% change over N periods). Positive OI delta = confirming signal, negative = warning. Note: ccxt pagination limited to 200 records for historical OI. |
-| **Volume-weighted rate filtering** | High rate on low volume pairs is a trap -- insufficient liquidity for clean entry/exit. v1.0 has min_volume_24h but no volume trend. | Low | FundingMonitor (already captures volume_24h) | Track volume trend: is 24h volume increasing or decreasing vs. 7d average? Declining volume on a high-rate pair = avoid. |
-| **Market regime classification** | Bull/bear/sideways regime dramatically affects funding rate strategy returns (research: 52% annualized in bull vs 8.7% in bear). Adjust risk parameters per regime. | High | New: BTC price trend as proxy, or multi-asset breadth | Simple regime: BTC 20-period SMA slope + funding rate breadth (% of pairs with positive rates). 3 states: risk-on, neutral, risk-off. Scale max_simultaneous_positions and position sizes accordingly. |
-
-### Backtesting Sophistication
+### Strategy Building Workflow
 
 | Feature | Value Proposition | Complexity | Depends On | Notes |
 |---------|-------------------|------------|------------|-------|
-| **Walk-forward validation** | Prevents overfitting by optimizing on in-sample window, testing on out-of-sample, then rolling forward. Grid search alone risks curve-fitting to historical noise. | High | Parameter sweep (table stakes), replay engine | Split data into rolling windows (e.g., 3 months in-sample, 1 month out-of-sample). Optimize on in-sample, record out-of-sample performance. Average out-of-sample results = realistic expected performance. |
-| **Historical OHLCV data for spread/slippage modeling** | Backtests assuming market orders at last price are unrealistic. Need price candles to model slippage and basis spread at entry/exit time. | Medium | New: fetch Bybit kline data via `/v5/market/kline` | Store alongside funding rate data. Use high/low of candle to estimate worst-case slippage. Adds realism to backtest P&L calculations. |
-| **Monte Carlo robustness testing** | After parameter optimization, shuffle trade sequence to test if results depend on lucky ordering or are genuinely robust | Medium | Backtest results (table stakes) | Resample trade returns with replacement, run 1000+ simulations, compute confidence intervals on Sharpe/drawdown. Flags fragile strategies. |
+| **Guided strategy builder wizard** | Walk the user through: (1) pick pairs based on pair explorer data, (2) choose strategy mode (simple vs composite), (3) set parameters with sensible defaults and explanations, (4) run backtest, (5) review results with trade log, (6) compare with alternative parameters. This turns 6 disconnected features into a coherent workflow. | Medium | Pair explorer, backtest engine, trade log, parameter sweep | Multi-step HTML form with HTMX partial updates. Each step informs the next. Step 1 pre-selects the pair with best historical metrics. Step 3 shows parameter defaults from the pair's historical data (e.g., "average rate for ETHUSDT is 0.008%, so entry threshold of 0.01% means you enter above the 62nd percentile"). |
+| **Parameter sensitivity preview** | Before running a full sweep, show quick estimates of how parameter changes affect results. "If you raise the entry threshold from 0.01% to 0.02%, you would have captured X fewer trades but with Y% higher avg yield." | High | Historical funding rate data, quick estimation logic | Lightweight estimation using rate distribution (no full backtest). Count how many funding periods exceed each threshold. Multiply by avg rate above threshold minus fees. Gives directional guidance without the computation cost of a full sweep. |
+| **Strategy template library** | Pre-built strategy configurations: "Conservative BTC" (high threshold, low allocation), "Aggressive Altcoin" (lower threshold, higher allocation, composite mode), "Balanced Portfolio" (multi-pair, moderate settings). New users do not know what good parameters look like. | Low | Backtest config system | JSON/dict templates that pre-fill the backtest form. Include description explaining the rationale. Can ship 3-5 templates based on analysis of the user's historical data. |
+| **Backtest comparison across pairs** | Run the same strategy parameters across multiple pairs simultaneously and compare results. Currently, backtests are single-pair only. The user wants to know: "With these settings, which pairs would have been profitable?" | Medium | Backtest engine, pair explorer | Iterate the existing single-pair backtest across selected pairs. Aggregate results into a comparison table: pair, net P&L, Sharpe, win rate, total trades. Already have all the infrastructure -- just need the loop and aggregation UI. |
 
-### Advanced Sizing Strategies
+### Learning & Intuition Features
 
 | Feature | Value Proposition | Complexity | Depends On | Notes |
 |---------|-------------------|------------|------------|-------|
-| **Correlation-aware exposure management** | BTC-correlated altcoin positions are not truly diversified. 5 positions in correlated pairs = effectively 1 large position. | High | Historical price data, position tracking | Compute rolling correlation matrix of position returns. Cap total "effective exposure" (sum of position sizes weighted by average pairwise correlation). Prevents false diversification. |
-| **Time-to-funding-aware sizing** | A position opened 1 hour before funding snapshot captures more value per dollar of fee than one opened 7 hours before. | Low | FundingRateData.next_funding_time (already available) | Scale position size or entry urgency by time remaining to next funding. Closer to snapshot = more aggressive entry (amortized fee is lower). |
-| **Auto-compounding** | Reinvest funding profits into larger positions. Compound growth instead of flat returns. | Low | PnLTracker.get_portfolio_summary, PositionSizer | Use current equity (initial + accumulated P&L) instead of initial capital for sizing calculations. Simple change but meaningful over time. |
+| **Rate regime annotations** | Mark periods on the funding rate chart: "Bull market -- rates consistently positive", "Market crash -- rates went deeply negative for 3 days", "Consolidation -- rates near zero." Help users connect rate patterns to market events they may remember. | Medium | Historical rate data, manual or heuristic labeling | Auto-detect regimes using rate statistics over rolling windows: avg rate > 0.02% = "High funding environment", avg rate < 0 = "Bearish pressure", rate std dev > 2x normal = "Volatile period". Overlay as shaded regions on rate chart. |
+| **Trade replay mode** | Step through a backtest trade-by-trade, showing the state of the market at each entry/exit decision. "At this moment, the rate was X, the trend was Y, the persistence was Z, and the strategy decided to enter because..." Inspired by FX Replay and TradingView bar replay. | High | Trade log, historical data, signal engine | For each trade in the backtest log, reconstruct the signal state at entry/exit time. Display as a card: rate chart zoomed to the trade period, signal breakdown, funding payments received during hold. This is the most powerful learning tool but requires significant UI work. |
+| **Funding rate glossary/tooltips** | Inline explanations: "Funding rate: the periodic payment between long and short positions. Positive = longs pay shorts. Our strategy collects this payment by shorting perps while holding spot." | Low | None (static content) | Tooltip icons next to every metric. Helps users who are learning funding rate arbitrage for the first time. Minimal code, high impact for onboarding. |
+| **Historical performance summary card** | "Over the last 90 days, your tracked pairs had an average annualized yield of X% after fees. The best pair was Y with Z% yield. The worst was W which would have lost money due to fee drag." One-paragraph summary that answers "is this strategy even working?" | Low | Historical rate data, fee calculations | Compute from stored data on page load. No backtest needed -- use rate averages and fee math. Display prominently at the top of the pair explorer page. |
 
 ---
 
 ## Anti-Features
 
-Features to explicitly NOT build in v1.1. Each has been considered and rejected for specific reasons.
+Features to explicitly NOT build in v1.2. Each has been considered and rejected.
 
 | Anti-Feature | Why Avoid | What to Do Instead |
 |--------------|-----------|-------------------|
-| **Machine learning funding rate prediction** | Academic research shows DAR models provide modest next-period predictability, but building/training/maintaining ML models is a massive complexity increase for marginal gain. Simple statistical signals (trend slope, persistence) capture 80% of the value. | Use moving averages, linear regression slope, and consecutive-period counting. Revisit ML only if statistical signals prove insufficient after live testing. |
-| **Real-time WebSocket data for backtesting** | Backtesting uses historical data, not live streams. Building WebSocket replay infrastructure is over-engineering. | Simple chronological iteration through stored DataFrames/dicts. Event-driven does not mean WebSocket-driven for backtests. |
-| **Genetic algorithm / Bayesian parameter optimization** | Grid search with walk-forward validation is sufficient for the small parameter space (min_rate, exit_rate, holding_periods, sizing_factor). Advanced optimizers add complexity without proportional benefit for <10 parameters. | Grid search with walk-forward. If parameter space grows beyond 10 dimensions in future, then consider Bayesian optimization. |
-| **Cross-exchange funding rate arbitrage** | Different APIs, different fee structures, capital transfer delays, and counterparty risk across exchanges. Massive complexity increase. | Stay single-exchange (Bybit). Cross-exchange is a v3.0 feature at earliest. |
-| **Portfolio optimization (Markowitz/Black-Litterman)** | Overkill for funding rate arb where positions are nearly identical in structure. MPT assumes diverse asset classes. | Simple correlation-aware exposure limits are sufficient. |
-| **Custom backtesting framework** | Building from scratch when the strategy is simple enough that a purpose-built replay loop suffices. Frameworks like Backtrader/Zipline add dependencies and abstraction overhead for a strategy that processes 3 data points per period. | Build a minimal replay engine tailored to funding rate data. The strategy evaluates rate + trend + persistence per 8h period -- this does not need a generic framework. |
-| **Real-time strategy switching** | Automatically switching between different strategy modes based on market conditions. Too complex for v1.1, too risky without extensive testing. | Use market regime to adjust parameters (position sizes, thresholds) within a single strategy, not to switch strategies entirely. |
+| **Real-time pair recommendation alerts** | The user is learning, not operating at scale. Push notifications create urgency without understanding. The user should pull insights when ready, not be pushed into action. | Show "Strong opportunity" labels on the dashboard. The user checks when they want to. |
+| **Auto-execute from backtest results** | "This backtest was profitable, click here to run it live" is dangerous for a user who does not yet understand the strategy. Backtests have survivorship bias, look-ahead risk, and regime sensitivity. | Show results with context: "This backtest earned $X over Y days in a bull market. Past performance does not predict future results." Let the user manually configure the bot. |
+| **Multi-exchange pair comparison** | The bot only trades on Bybit. Showing funding rates from Binance, OKX, etc. is interesting but not actionable. It also requires additional API integrations and data pipelines. | Stay focused on Bybit-only data. Clearly label all data as Bybit. Cross-exchange comparison is a v2.0+ feature. |
+| **AI-powered trade recommendations** | LLM-based analysis ("Claude thinks ETHUSDT is a good opportunity because...") adds opacity and unpredictability. The user needs to build their OWN understanding, not defer to an AI. | Show clear metrics and let the user form conclusions. The signal score system already provides structured analysis. |
+| **Social sentiment integration** | Integrating Twitter/Reddit sentiment adds noise, requires external APIs with rate limits, and is poorly correlated with funding rate dynamics. Funding rates are driven by leverage positioning, not social sentiment. | Focus on market-microstructure signals that are already available: rate level, trend, persistence, basis spread, volume. |
+| **Complex multi-leg strategies** | Calendar spreads, cross-pair hedging, or options overlays. Massively increases complexity. The user is still learning basic delta-neutral arb. | Stick with single-pair long-spot/short-perp. Add complexity only after the user has live trading experience. |
+| **Custom indicator builder** | "Build your own signal from rate + OI + volume + basis with custom weights." Powerful but premature. The user does not yet know what signals matter. | Provide the composite signal with fixed sub-signals and let the user adjust weights via the existing backtest parameter sweep. |
 
 ---
 
 ## Feature Dependencies
 
 ```
-Historical Data Layer:
-  Bybit API pagination handler --> Historical funding rate ingestion
-  Historical funding rate ingestion --> Replay simulation engine
-  Historical funding rate ingestion --> Funding rate history buffer (can also use live data)
+Pair Explorer Layer:
+  HistoricalDataStore.get_funding_rates() --> Per-pair aggregate statistics computation
+  Per-pair aggregate statistics --> Pair profitability ranking table
+  Per-pair aggregate statistics --> Fee-adjusted yield calculator
+  Per-pair aggregate statistics --> "Is this rate good?" contextual indicator
+  HistoricalDataStore.get_funding_rates() --> Per-pair funding rate time series chart
+  Per-pair funding rate time series chart --> Rate distribution histogram
+  Pair profitability ranking table --> Pair comparison view
 
-Trend Analysis Layer:
-  Funding rate history buffer --> Rate trend direction detection
-  Funding rate history buffer --> Rate persistence scoring
-  Rate trend detection + Persistence scoring --> Composite entry signal
+Trade-Level Results Layer:
+  BacktestEngine.run() --> Capture individual PositionPnL in BacktestResult  [CRITICAL CHANGE]
+  Captured PositionPnL list --> Individual trade log table
+  Individual trade log table --> Win/loss trade categorization
+  Individual trade log table + Per-pair rate chart --> Trade-on-chart visualization
+  Individual trade log table --> Per-trade P&L breakdown (expandable rows)
 
-Backtesting Layer:
-  Replay simulation engine + Fee-accurate P&L --> Backtest execution
-  Backtest execution --> Strategy parameter sweep
-  Parameter sweep --> Walk-forward validation
-  Backtest execution --> Backtest results visualization
-  Backtest execution --> Monte Carlo robustness testing
+Decision Context Layer:
+  Per-pair aggregate statistics + Existing funding rates panel --> Contextual rate indicator
+  SignalEngine.score_opportunities() --> Signal score breakdown display
+  Contextual rate indicator + Signal score --> Recommended action label
 
-Dynamic Sizing Layer:
-  Composite entry signal --> Conviction-scaled sizing
-  Conviction-scaled sizing --> Risk-constrained sizing (guardrails)
-  PnLTracker drawdown data --> Drawdown-responsive sizing
+Strategy Building Layer (differentiators):
+  Pair explorer + Backtest engine + Trade log --> Guided strategy builder wizard
+  Historical rate distribution --> Parameter sensitivity preview
+  Backtest config templates --> Strategy template library
+  Backtest engine + Pair explorer --> Multi-pair backtest comparison
 
-Market Context Layer (differentiators):
-  TickerService prices --> Spot-perp basis spread monitoring
-  Bybit OI API --> Open interest change tracking
-  FundingMonitor volume --> Volume-weighted rate filtering
-  BTC price data + rate breadth --> Market regime classification
-  Composite signal + Market context signals --> Enhanced entry signal
+Learning Layer (differentiators):
+  Historical rate data + heuristic detection --> Rate regime annotations
+  Trade log + signal reconstruction --> Trade replay mode
+  Static content --> Funding rate glossary/tooltips
+  Per-pair aggregate statistics --> Historical performance summary card
+```
 
-Integration:
-  Enhanced entry signal --> Orchestrator._autonomous_cycle (replaces simple threshold)
-  Conviction-scaled sizing --> Orchestrator.open_position (replaces static sizing)
-  Backtest results --> Dashboard visualization (new page)
+**Critical path for table stakes:**
+```
+1. Per-pair aggregate statistics computation (foundation for everything)
+2. Capture trade-level data in BacktestResult (critical change to existing code)
+3. Pair profitability ranking table + rate chart (pair explorer core)
+4. Trade log table + trade-on-chart (backtest detail core)
+5. Contextual rate indicators (decision support core)
 ```
 
 ---
 
-## MVP Recommendation for v1.1
+## MVP Recommendation for v1.2
 
-### Phase 1: Historical Data + Trend Analysis (foundation for everything else)
+### Priority 1: Pair Explorer (foundation for all decision-making)
 
-Build first because backtesting AND smarter entry both require historical rate data.
+Build first because the user cannot make ANY strategy decisions without understanding which pairs are worth considering.
 
-1. Historical funding rate data ingestion (paginated Bybit API fetcher + local storage)
-2. Funding rate history buffer (rolling window in FundingMonitor)
-3. Rate trend direction detection (moving average slope)
-4. Rate persistence scoring (consecutive periods above threshold)
-5. Composite entry signal (replaces simple threshold in OpportunityRanker)
+1. Per-pair aggregate statistics computation (avg rate, std dev, percentile rankings, fee-adjusted yield)
+2. Pair profitability ranking table (sortable by yield, stability, volume)
+3. Per-pair funding rate time series chart (with mean/threshold reference lines)
+4. Rate distribution histogram (with current rate marker)
+5. Fee-adjusted yield display (annualized net yield, breakeven periods)
+6. Historical performance summary card ("here's how your pairs have performed")
 
-**Rationale:** Trend analysis is the lowest-risk, highest-impact improvement over v1.0. It makes the bot immediately smarter for live trading while also building the data infrastructure needed for backtesting.
+**Rationale:** The pair explorer transforms raw historical data (50K+ records already stored) into actionable insights. It answers the user's most basic question: "Which of these 20 pairs should I care about?" No new data collection needed -- all inputs exist in SQLite.
 
-### Phase 2: Backtesting Engine
+### Priority 2: Trade-Level Backtest Results (makes backtesting actually useful for learning)
 
-Build second because parameter validation requires Phase 1's data and signals.
+Build second because the user needs to understand WHY a strategy worked or failed, not just whether it did.
 
-1. Replay simulation engine (feed historical data through strategy pipeline)
-2. Fee-accurate P&L simulation (reuse existing PnLTracker/FeeCalculator)
-3. Strategy parameter sweep (grid search over min_rate, exit_rate, holding_periods)
-4. Backtest results visualization (equity curve + parameter heatmap on dashboard)
+1. Capture individual `PositionPnL` list in `BacktestResult` (code change in engine)
+2. Trade log table with per-trade P&L breakdown
+3. Win/loss categorization and summary statistics
+4. Trade-on-chart visualization (entry/exit markers on rate chart)
 
-**Rationale:** Backtesting validates the trend signals from Phase 1 and provides evidence for parameter choices. Without it, trend analysis parameters are just guesses.
+**Rationale:** The current backtest shows "you made $47 in 30 days with 12 trades." The user needs to see "trade #3 entered at 0.015% rate, held for 4 funding periods, collected $8.20 in funding, paid $3.10 in fees, net +$5.10." This is how intuition gets built.
 
-### Phase 3: Dynamic Position Sizing
+### Priority 3: Decision Context (transforms the dashboard from data display to decision support)
 
-Build last because sizing logic should be validated via backtesting first.
+Build third because it requires both pair statistics (Priority 1) and familiarity with the interface.
 
-1. Conviction-scaled sizing (signal_score -> position size)
-2. Risk-constrained sizing (total portfolio exposure limit)
-3. Drawdown-responsive sizing (reduce during losing streaks)
+1. Contextual rate indicators on the existing funding rates panel (percentile, trend)
+2. Signal score breakdown display (radar/bar chart of sub-signals)
+3. Recommended action labels ("Strong opportunity", "Not recommended")
+4. Funding rate glossary tooltips
 
-**Rationale:** Sizing changes affect real money. They MUST be backtested (Phase 2) before live deployment. Phase ordering prevents deploying untested sizing logic.
+**Rationale:** These features enhance existing dashboard panels with context. The user who has explored pairs (Priority 1) and understood backtest trades (Priority 2) is now ready for real-time decision support.
 
-### Defer to v1.2+
+### Defer to v1.3+
 
-- Walk-forward validation (Phase 2 delivers value without it; add when parameter space grows)
-- Market regime classification (high complexity, needs more live data to calibrate)
-- Correlation-aware exposure (requires substantial historical price data infrastructure)
-- Open interest tracking (additional API complexity, moderate signal value)
-- Monte Carlo testing (nice-to-have after core backtesting works)
+- **Guided strategy builder wizard** -- valuable but not blocking. Users can manually navigate pair explorer -> backtest -> review results.
+- **Trade replay mode** -- highest-value learning tool but highest complexity. Build after core features prove useful.
+- **Parameter sensitivity preview** -- nice optimization but not needed when the user is still learning basics.
+- **Rate regime annotations** -- interesting but requires calibration. Auto-detection thresholds need tuning against more data.
+- **Multi-pair backtest comparison** -- straightforward extension once trade-level results work for single pairs.
+- **Strategy template library** -- simple to add later, low urgency since the backtest form already works.
 
 ---
 
 ## Complexity Analysis
 
-| Feature | Complexity | Effort Estimate | Risk |
-|---------|------------|-----------------|------|
-| Historical data ingestion | Medium | 2-3 days | API pagination edge cases, rate limits |
-| Rate history buffer | Low | 0.5 days | Minimal -- deque per symbol |
-| Trend direction detection | Low | 0.5 days | Choosing window size |
-| Persistence scoring | Low-Medium | 1 day | Defining "elevated" threshold relative to mean |
-| Composite entry signal | Medium | 1-2 days | Weight tuning (use backtest to validate) |
-| Replay simulation engine | High | 3-5 days | Preventing lookahead bias, time simulation fidelity |
-| Parameter sweep | Medium | 1-2 days | Computation time management, results storage |
-| Backtest visualization | Low-Medium | 1-2 days | Chart rendering in existing dashboard stack |
-| Conviction-scaled sizing | Medium | 1-2 days | Kelly fraction calibration |
-| Risk-constrained sizing | Low | 0.5 days | Simple extension of existing RiskManager |
-| Drawdown-responsive sizing | Medium | 1 day | Real-time drawdown calculation, scaling curve |
+| Feature | Complexity | Effort Estimate | Risk | Existing Code Leverage |
+|---------|------------|-----------------|------|----------------------|
+| Per-pair aggregate statistics | Medium | 1-2 days | SQL query performance on 50K+ records | `HistoricalDataStore` queries exist, need aggregation |
+| Pair ranking table | Low | 0.5-1 day | Sorting/filtering UX | Existing HTMX table patterns from funding rates panel |
+| Rate time series chart | Low | 0.5 day | None | Chart.js + equity curve pattern directly reusable |
+| Rate distribution histogram | Low | 0.5 day | Bin sizing | Chart.js bar chart |
+| Fee-adjusted yield display | Low | 0.5 day | None | `OpportunityRanker` math already exists |
+| Capture trades in BacktestResult | Low | 0.5 day | Serialization size | `PnLTracker.get_closed_positions()` already works |
+| Trade log table | Low-Medium | 1 day | Table rendering with many columns | HTMX partial pattern |
+| Per-trade P&L breakdown | Low | 0.5 day | None | `PositionPnL` already has all data |
+| Win/loss categorization | Low | 0.5 day | None | `_net_return()` already in analytics/metrics.py |
+| Trade-on-chart markers | Medium | 1 day | Chart.js annotation plugin integration | Equity curve chart pattern adaptable |
+| Contextual rate indicators | Medium | 1-1.5 days | Percentile computation per pair | Need new aggregate query + UI enhancement |
+| Signal score breakdown | Low | 0.5 day | None | `CompositeSignal` dataclass has all fields |
+| Recommended action labels | Low | 0.5 day | Threshold calibration | Simple mapping from score + percentile |
+| Pair comparison view | Medium | 1-1.5 days | Multi-series chart rendering | Chart.js supports multi-dataset |
+| Tooltips/glossary | Low | 0.5 day | Content writing | Static HTML |
+| Historical summary card | Low | 0.5 day | None | Aggregate query + template |
 
-**Total estimated effort:** 12-20 days across 3 phases
+**Total estimated effort for table stakes:** 8-12 days across 3 priorities
+**Total with differentiators:** 16-24 days
 
 ---
 
-## Integration Points with v1.0
+## Integration Points with Existing Code
 
-These are the specific v1.0 components that v1.1 features will extend or modify:
+These are the specific components that v1.2 features will extend or modify:
 
-| v1.0 Component | How v1.1 Modifies It |
-|----------------|---------------------|
-| `OpportunityRanker.rank_opportunities()` | Add `signal_score` to OpportunityScore, use composite signal instead of raw rate comparison |
-| `FundingMonitor._funding_rates` | Add `_funding_rate_history: dict[str, deque[FundingRateData]]` for rolling window |
-| `PositionSizer.calculate_matching_quantity()` | Accept `signal_score` parameter, scale between min and max size based on conviction |
-| `RiskManager.check_can_open()` | Add total portfolio exposure check alongside existing per-pair and max-position checks |
-| `Orchestrator._autonomous_cycle()` | Pass signal_score through to sizing; apply drawdown scaling |
-| `PnLTracker` | Expose real-time drawdown metric for sizing decisions |
-| `AppSettings` / config system | New settings for trend windows, signal weights, sizing curves, backtest parameters |
-| Dashboard | New backtest page, enhanced opportunity display showing signal scores |
+| Existing Component | How v1.2 Modifies It | Change Type |
+|-------------------|---------------------|-------------|
+| `BacktestResult` (backtest/models.py) | Add `trades: list[dict]` field containing serialized `PositionPnL` data for each trade | **Model extension** |
+| `BacktestEngine.run()` (backtest/engine.py) | After `_compute_metrics()`, serialize `PnLTracker.get_closed_positions()` into the result | **Minor code change** |
+| `HistoricalDataStore` (data/store.py) | Add aggregate query methods: `get_pair_statistics()`, `get_rate_distribution()`, `get_rate_percentile()` | **New methods** |
+| Dashboard routes (dashboard/routes/pages.py) | Add routes: `/pairs` (pair explorer page), enhance `/backtest` to show trade log | **New routes** |
+| Dashboard API routes (dashboard/routes/api.py) | Add endpoints: `/api/pairs/stats`, `/api/pairs/{symbol}/rates`, `/api/pairs/{symbol}/distribution` | **New endpoints** |
+| Funding rates panel (templates/partials/funding_rates.html) | Add columns for historical context (percentile, trend, recommendation) | **Template enhancement** |
+| Base template (templates/base.html) | Add navigation link to pair explorer page | **Minor template change** |
+| `CompositeSignal` (signals/models.py) | No change needed -- already has all sub-scores for display | **Read-only use** |
+| `OpportunityRanker` (market_data/opportunity_ranker.py) | No change needed -- reuse net yield calculation logic | **Read-only use** |
+
+**Key insight:** Most v1.2 features are READ operations on data that already exists. The only significant CODE change is capturing trade-level data in `BacktestResult`. Everything else is new UI/routes that query existing stores.
+
+---
+
+## User Learning Journey
+
+The feature set is designed to support a specific learning progression:
+
+```
+Stage 1: "What am I looking at?" (Pair Explorer)
+  User opens pair explorer, sees ranking table
+  Clicks on top-ranked pair, sees rate history chart
+  Sees distribution histogram: "Oh, 0.01% is above average for this pair"
+  Reads tooltip: "Funding rate is the periodic payment between longs and shorts"
+
+Stage 2: "How would this have performed?" (Trade-Level Backtest)
+  User runs backtest on the top-ranked pair
+  Sees trade log: 15 trades over 30 days, 11 wins, 4 losses
+  Expands winning trade: held 4 periods, collected $8.20 funding, paid $3.10 fees
+  Expands losing trade: held 1 period, rate dropped, collected $1.50, paid $3.10 fees
+  Sees trades on chart: "entries happen when rate spikes, exits when it drops"
+  Insight: "Short trades lose because fees exceed single-period funding"
+
+Stage 3: "What should I do now?" (Decision Context)
+  User returns to main dashboard, sees enhanced funding rate panel
+  ETHUSDT shows: rate=0.012%, percentile=78th, trend=rising, label="Strong opportunity"
+  XRPUSDT shows: rate=0.005%, percentile=35th, trend=falling, label="Below average"
+  Signal breakdown shows: rate_level=0.8, trend=0.9, persistence=0.7, basis=0.5
+  User understands why ETHUSDT scores higher and is ready to configure the bot
+
+Stage 4: "Can I try different approaches?" (Strategy Builder -- v1.3)
+  User follows guided wizard to compare strategies
+  Steps through trade replay to understand each decision
+  Applies templates to quickly test different risk profiles
+```
 
 ---
 
 ## Sources
 
-### Bybit API (HIGH confidence)
-- [Bybit Historical Funding Rate API](https://bybit-exchange.github.io/docs/v5/market/history-fund-rate) -- 200 records/page, category + symbol required, paginate with endTime
-- [Bybit Open Interest API](https://bybit-exchange.github.io/docs/v5/market/open-interest) -- intervalTime parameter, 200 records/page
-- [Bybit Kline API](https://bybit-exchange.github.io/docs/v5/market/kline) -- standard OHLCV with category/symbol/interval
+### Competitive Analysis (MEDIUM confidence)
+- [CoinGlass Funding Rate Arbitrage](https://www.coinglass.com/FrArbitrage) -- cross-exchange arbitrage table with APR, net funding rate, spread rate, OI columns
+- [CoinGlass Funding Rate Heatmap](https://www.coinglass.com/FundingRateHeatMap) -- visual heatmap of rates across pairs/exchanges
+- [Loris Tools Historical Funding](https://loris.tools/funding/historical) -- per-symbol analysis, BPS/APY toggle, multi-exchange overlay, 8h-30d timeframes
+- [FundingView Strategy Finder](https://fundingview.app/strategy) -- historical APR calculations across timeframes (1d to 1y), exchange filtering, strategy discovery
+- [Sharpe AI Funding Rate Dashboard](https://sharpe.ai/funding-rate) -- 200+ pair heatmap, real-time dashboard, pattern tracking
+- [CryptoFundingTracker](https://cryptofundingtracker.com/) -- cross-platform rate comparison, discrepancy identification
 
-### Academic Research (MEDIUM-HIGH confidence)
-- [Predictability of Funding Rates (SSRN)](https://papers.ssrn.com/sol3/Delivery.cfm/fe1e91db-33b4-40b5-9564-38425a2495fc-MECA.pdf?abstractid=5576424) -- DAR models outperform no-change baseline; autocorrelation weak beyond 3 lags; mean-reversion (Ornstein-Uhlenbeck) dynamics confirmed
-- [Two-Tiered Structure of Funding Rate Markets (MDPI)](https://www.mdpi.com/2227-7390/14/2/346) -- 17% of apparent opportunities lose money after transaction costs
-- [Exploring Risk and Return Profiles of Funding Rate Arbitrage (ScienceDirect)](https://www.sciencedirect.com/science/article/pii/S2096720925000818) -- CEX vs DEX return profiles
+### Backtesting UX (MEDIUM confidence)
+- [Freqtrade Backtesting](https://www.freqtrade.io/en/stable/backtesting/) -- per-trade breakdown tables (entry tag, avg profit, win/draw/loss counts), web visualization, export to file
+- [TradesViz](https://www.tradesviz.com/) -- 600+ stats, per-trade chart visualization with entry/exit/stops/MAE, customizable dashboard widgets
+- [FX Replay](https://www.fxreplay.com/) -- trade replay stepping, P&L trend tracking, past trades on chart review
 
-### Industry Practice (MEDIUM confidence)
-- [Amberdata: Ultimate Guide to Funding Rate Arbitrage](https://blog.amberdata.io/the-ultimate-guide-to-funding-rate-arbitrage-amberdata) -- multi-factor entry signals, OI confirmation, spread analysis
-- [QuantJourney: Funding Rates as Hidden Signals](https://quantjourney.substack.com/p/funding-rates-in-crypto-the-hidden) -- statistical properties, mean reversion edge, multi-factor integration
-- [MadeInArk: Funding Rate Arbitrage Deep Dive](https://madeinark.org/funding-rate-arbitrage-and-perpetual-futures-the-hidden-yield-strategy-in-cryptocurrency-derivatives-markets/) -- regime-aware returns (52% bull vs 8.7% bear), dynamic sizing Sharpe improvement (1.4 to 2.3)
+### Funding Rate Analysis (MEDIUM-HIGH confidence)
+- [Zipmex: How to Analyze Funding Rates](https://zipmex.com/blog/how-to-analyze-funding-rates-in-crypto/) -- neutral rate ~0.01% per 8h, extreme readings (>0.05%, <-0.05%) as opportunity signals, multi-exchange comparison, OI correlation
+- [Amberdata: Ultimate Guide to Funding Rate Arbitrage](https://blog.amberdata.io/the-ultimate-guide-to-funding-rate-arbitrage-amberdata) -- OI as liquidity indicator, basis spread monitoring, delta-neutral maintenance
+- [MadeInArk: Funding Rate Arbitrage Deep Dive](https://madeinark.org/funding-rate-arbitrage-and-perpetual-futures-the-hidden-yield-strategy-in-cryptocurrency-derivatives-markets/) -- 19.26% avg annual returns in 2025, <2% max drawdown, large vs small cap tradeoffs
 
-### Position Sizing (MEDIUM confidence)
-- [Kelly Criterion for Crypto Traders (Medium)](https://medium.com/@tmapendembe_28659/kelly-criterion-for-crypto-traders-a-modern-approach-to-volatile-markets-a0cda654caa9) -- fractional Kelly (quarter to half) recommended for crypto
-- [Dynamic Position Sizing in Volatile Markets (ITI)](https://internationaltradinginstitute.com/blog/dynamic-position-sizing-and-risk-management-in-volatile-markets/) -- volatility-adjusted sizing framework
-
-### Backtesting Architecture (MEDIUM confidence)
-- [Event-Driven Backtesting with Python (QuantStart)](https://www.quantstart.com/articles/Event-Driven-Backtesting-with-Python-Part-I/) -- event queue architecture, lookahead bias prevention
-- [Walk-Forward Optimization (QuantInsti)](https://blog.quantinsti.com/walk-forward-optimization-introduction/) -- rolling in-sample/out-of-sample windows
-- [Vector vs Event-Based Backtesting (IBKR)](https://www.interactivebrokers.com/campus/ibkr-quant-news/a-practical-breakdown-of-vector-based-vs-event-based-backtesting/) -- hybrid model recommendation
-
-### ccxt Integration (LOW-MEDIUM confidence -- known pagination bugs)
-- [ccxt fetchFundingRateHistory Bybit issues](https://github.com/ccxt/ccxt/issues/17854) -- 200 record pagination limitation
-- [ccxt fetchOpenInterestHistory issues](https://github.com/ccxt/ccxt/issues/15990) -- since/limit parameter bugs reported
+### Strategy Discovery (MEDIUM confidence)
+- [Gate.io: Perpetual Contract Funding Rate Arbitrage Strategy](https://www.gate.com/learn/articles/perpetual-contract-funding-rate-arbitrage/2166) -- high/stable rates, minimal price differences, high OI for liquidity, large vs small cap tradeoffs
+- [1Token: Crypto Fund 101 Funding Fee Arbitrage](https://blog.1token.tech/crypto-fund-101-funding-fee-arbitrage-strategy/) -- conservative leverage on small caps, higher concentration acceptable on large caps

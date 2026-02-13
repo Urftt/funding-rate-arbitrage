@@ -1,410 +1,368 @@
-# Domain Pitfalls: Adding Strategy Intelligence to Funding Rate Arbitrage Bot
+# Domain Pitfalls: Strategy Discovery, Pair Analysis, and Enhanced Backtesting Visualization
 
-**Domain:** Backtesting, trend analysis, and dynamic position sizing for crypto funding rate arbitrage
-**Researched:** 2026-02-12
-**Confidence:** MEDIUM (verified against Bybit API docs, ccxt issues, academic research, and practitioner sources)
+**Domain:** Trading strategy discovery tools, per-pair profitability dashboards, and trade-level backtest visualization for crypto funding rate arbitrage
+**Researched:** 2026-02-13
+**Confidence:** MEDIUM-HIGH (verified against Bybit API docs, existing codebase analysis, backtesting methodology literature, and visualization research)
 
-> **Scope:** This document covers pitfalls specific to the v1.1 milestone -- adding backtesting, trend analysis, and dynamic position sizing to an already-working v1.0 system. v1.0 pitfalls (delta hedging, fee impact, rate limits, etc.) are documented in the v1.0 research archive and are not repeated here.
+> **Scope:** This document covers pitfalls specific to the v1.2 milestone -- adding Pair Explorer, Trade Replay, Strategy Builder, and Decision View to the existing v1.0/v1.1 system. v1.1 pitfalls (look-ahead bias, overfitting, survivorship bias, false trend signals, etc.) are documented in the v1.1 research archive and are referenced but not repeated here. This document focuses on NEW pitfalls introduced by strategy discovery, profitability visualization, and user-facing analysis features.
+
+> **Primary risk:** A beginner user makes bad trading decisions based on misleading analysis. Every pitfall below is evaluated through that lens.
 
 ---
 
 ## Critical Pitfalls
 
-Mistakes that produce false confidence, break the working v1 system, or cause the new intelligence layer to make worse decisions than the simple threshold approach it replaces.
+Mistakes that directly mislead the user into believing a strategy is profitable when it is not, or that cause them to deploy capital based on false confidence.
 
-### Pitfall 1: Look-Ahead Bias in Funding Rate Backtesting
+### Pitfall 1: Annualized Yield Illusion -- Displaying APY From Short-Period Rates
 
-**What goes wrong:** The backtester uses information that would not have been available at decision time. For funding rate arbitrage this is especially insidious because the "current" funding rate displayed by Bybit is actually the *predicted next* rate that will be settled, and historical data returns the *settled* rate. If the backtester decides to enter based on the settled rate (which the bot would not have known in advance), results appear far better than reality.
+**What goes wrong:** The Pair Explorer and Decision View display annualized yield figures (e.g., "87% APY") derived from a single 8-hour funding rate snapshot or a short recent period. A beginner sees "87% APY" and concludes the pair is highly profitable, when in reality the rate is transient and fees consume most of the yield over realistic holding periods.
 
 **Why it happens:**
-- Bybit's `/v5/market/funding/history` returns rates *after* settlement. At decision time, the bot only has the *predicted* next rate, which can differ materially from the actual settled rate.
-- The v1.0 FundingMonitor stores `rate` from the ticker's `fundingRate` field -- this is the *predicted next* rate. Historical data from the funding history endpoint is the *settled* rate. These are different numbers.
-- Developers test with "what was the funding rate at time T?" using historical settled data, but the live system decides based on predicted rates. The gap between predicted and settled rates is the look-ahead bias.
-- Using future price data to calculate unrealized P&L during backtest (e.g., knowing the exit price at entry time).
+- The existing `OpportunityRanker` computes `annualized_yield = net_yield_per_period * periods_per_year` where `periods_per_year = 8760 / interval_hours`. A 0.01% per-8h rate becomes 10.95% annualized, and a 0.08% rate becomes 87.6% annualized.
+- This annualization assumes the rate stays constant for an entire year, which never happens. Funding rates are highly volatile with a mean-reverting structure.
+- Beginners anchor on the largest number displayed. "87% APY" is psychologically far more compelling than "0.08% per 8 hours" even though they represent the same mathematical reality.
+- The annualized figure ignores that most positions are held for 3-30 funding periods (1-10 days), not 365 days. Over a 3-period hold, a 0.08% rate yields 0.24% gross, minus ~0.31% round-trip fees = net LOSS.
 
 **Consequences:**
-- Backtest shows the strategy picking winners it could not have picked in real-time.
-- Parameter optimization gravitates toward thresholds that only work with perfect foresight.
-- v1.1 deployed with "optimized" thresholds performs worse than v1.0's simple approach.
-- False confidence in strategy improvements leads to larger position sizing, amplifying losses.
+- User enters positions on pairs with high annualized yield that are actually unprofitable after fees for realistic holding periods.
+- User develops false confidence in the strategy, seeing "double-digit annual returns" everywhere.
+- When positions lose money, user concludes the bot is broken rather than understanding the display was misleading.
 
 **Prevention:**
-- Fetch and store *both* predicted and settled funding rates in historical data. The backtest decision engine must use only the predicted rate (the one that was visible before settlement).
-- Implement a strict `as_of` timestamp for every data access in the backtester. No data point should be accessible before its real-world availability time.
-- Create a `DataView` abstraction that enforces temporal ordering -- `get_funding_rate(symbol, as_of=T)` must return only data published before T.
-- Validate by running the backtest on the last 2 weeks alongside the live paper trading v1.0. If backtest PnL materially differs from paper trading PnL for the same period, look-ahead bias is present.
-- Add an assertion: `assert decision_time < data_timestamp` should FAIL (would indicate look-ahead).
+- **Never display annualized yield as the primary metric.** Show "net yield per period" (after amortized fees) as the main number.
+- **Always show break-even context:** "Needs X consecutive periods at this rate to cover round-trip fees." The current `FeeCalculator.min_funding_rate_for_breakeven()` already computes this -- surface it prominently.
+- **Display holding-period returns**, not annualized: "At this rate for 3 periods: -0.07% | 10 periods: +0.49% | 30 periods: +2.09%"
+- **Color-code by net profitability** after fees, not by raw rate magnitude. A 0.03% rate that persists for 30 days is more profitable than a 0.1% rate that reverses after 2 periods.
+- **Add a volatility indicator** next to yield: "This rate has changed by more than 50% in the last 7 days" prevents false stability assumptions.
 
-**Detection (the "looks done but isn't" check):**
-- Backtest win rate is significantly higher than v1.0 paper trading win rate for overlapping periods.
-- Optimal entry threshold from backtest is lower than v1.0's 0.03% -- this suggests the backtest "sees" rates that the live system would miss.
-- Backtest shows entries *just before* large funding rate spikes (impossible without future knowledge).
-- Run A/B: backtest with predicted rates vs settled rates. If results differ by more than 10%, you have bias.
+**Detection:**
+- User consistently enters positions that lose money on pairs shown as "high yield" in the dashboard.
+- Pairs ranked #1 by annualized yield rarely appear in the top 5 by actual backtest profitability.
+- Win rate on high-annualized-yield pairs is lower than average.
 
-**Phase assignment:** Backtesting engine -- must be solved before any parameter optimization.
+**Phase assignment:** Pair Explorer and Decision View -- must be addressed in the first visualization phase. This is THE most dangerous pitfall for a beginner.
 
 ---
 
-### Pitfall 2: Overfitting Thresholds to Historical Funding Rate Patterns
+### Pitfall 2: Survivorship-Biased Pair Selection via Current Market Cap Ranking
 
-**What goes wrong:** Parameter optimization (entry threshold, exit threshold, holding period, sizing multiplier) finds values that perfectly fit historical patterns but fail on new data. Funding rate patterns are non-stationary -- they shift with market regime, exchange competition, and macro conditions.
+**What goes wrong:** The Pair Explorer shows "top 20 pairs by market cap" using current exchange data. The user backtests these pairs historically and sees strong performance, not realizing that selecting today's winners and testing them historically guarantees good-looking results. Pairs that crashed, were delisted, or lost market cap are invisible.
 
 **Why it happens:**
-- Funding rates cluster in regimes: sustained high rates during bull markets, low/negative during bears, and volatile during transitions. Optimizing across a single regime produces regime-specific parameters.
-- The parameter space is small (5-10 parameters) but the optimization surface is noisy. Grid search or random search over 6 months of data finds noise, not signal.
-- Crypto markets have regime changes every 3-6 months. Parameters optimized on a 6-month window may be optimized for exactly one regime.
-- Sharpe ratios above 3.0 and profit factors above 2.0 are red flags for overfitting -- but they look like success.
+- The existing `pair_selector.py` uses `select_top_pairs(funding_rates, count=20)` sorted by current `volume_24h`. Any historical analysis of these 20 pairs inherits survivorship bias because they are, by definition, the pairs that survived and grew.
+- Backtesting research shows this can inflate returns by 50-100%. One study demonstrated a strategy showing 4x less profit, 15% more drawdown, and profit factor nearly halved when properly accounting for survivorship bias (Concretum Group, 2025).
+- Crypto is especially vulnerable: 5-15% of perpetual contracts are delisted annually, and the delisted ones disproportionately had extreme funding rates (high signal, high risk).
 
 **Consequences:**
-- "Optimized" v1.1 parameters perform worse than v1.0's manually-chosen thresholds in the next market regime.
-- Overconfidence in backtest results leads to increased position sizes, magnifying losses.
-- Time wasted on parameter tuning that adds zero real-world value.
+- User backtests "BTC, ETH, SOL" and sees profits, assumes strategy works, not realizing that 3 pairs that went to zero in 2025 would have been in the top 20 when selected historically.
+- Strategy Builder results are systematically biased upward. Every configuration looks better than it should.
+- User deploys with false confidence, encounters a pair that crashes, and suffers unexpected losses.
 
 **Prevention:**
-- Use walk-forward validation, not a single train/test split. Split historical data into rolling windows: optimize on 3-month windows, validate on the following 1-month window, advance 1 month, repeat.
-- Limit the number of optimizable parameters. v1.0 has 2 (entry rate, exit rate). v1.1 should have at most 4-5 total.
-- Require out-of-sample improvement over v1.0 baseline on *every* walk-forward fold, not just on average.
-- Apply parameter stability check: if optimal parameters shift by more than 30% between adjacent windows, the optimization is fitting noise.
-- Set hard boundaries: Sharpe > 3.0 in backtest should trigger an overfitting warning, not celebration.
-- Monte Carlo shuffle test: randomize entry/exit timing and check if "optimized" parameters still outperform. If they don't survive randomization, they're overfit.
+- **Show survivorship bias warning** when backtesting current top pairs: "These are today's top pairs. In January 2025, the top 20 list included X pairs that are no longer actively traded."
+- **Implement point-in-time pair selection** for backtesting: when the user backtests June 2025, use the pairs that were in the top 20 AS OF June 2025, not today.
+- **Store historical pair snapshots** in the existing `tracked_pairs` table. Add a `snapshot_date` column. Weekly cron job already exists for pair re-evaluation (`pair_reeval_interval_hours = 168`). Snapshot the list at each re-evaluation.
+- **Display "pair tenure"** in the explorer: "This pair has been continuously tracked for X months." Short tenure = more uncertainty.
+- **If point-in-time data is unavailable**, show a disclaimer: "Backtest results may be inflated by survivorship bias. Pairs were selected using current market cap, not historical."
 
 **Detection:**
-- Backtest Sharpe > 3.0 or profit factor > 2.0 -- almost certainly overfit.
-- Parameters that are radically different from v1.0's values (e.g., entry threshold of 0.001% vs v1.0's 0.03%).
-- Performance degrades sharply when test period shifts by even 1 month.
-- Parameters that "work" change with each re-optimization run.
+- Backtest profitability is significantly higher than live paper trading results for the same period.
+- All tested pairs show positive returns (unrealistic -- some should show losses).
+- The pair list hasn't changed in months despite market cap shifts.
 
-**Phase assignment:** Backtesting engine validation -- must be tested before any parameters are deployed.
+**Phase assignment:** Pair Explorer setup and Strategy Builder -- must be addressed when implementing historical pair browsing. Can be partially mitigated with disclaimers in Phase 1, fully solved in a later phase with historical snapshots.
 
 ---
 
-### Pitfall 3: Breaking the Working v1.0 System During Integration
+### Pitfall 3: Aggregate Metrics Hiding Per-Trade Reality in Backtest Results
 
-**What goes wrong:** Adding the intelligence layer changes the decision path in the orchestrator's `_autonomous_cycle()`, and a bug in the new code causes the existing paper/live trading to malfunction. The v1.0 system works. The worst outcome of v1.1 is making it stop working.
+**What goes wrong:** The current backtest output shows aggregate `BacktestMetrics` (total trades, net PnL, Sharpe ratio, win rate) and an equity curve. Adding Trade Replay without surfacing the RIGHT per-trade details can make bad strategies look acceptable. A strategy with 60% win rate and positive net PnL can still have a catastrophic risk profile if the losing trades are 5x larger than winners.
 
 **Why it happens:**
-- The orchestrator directly calls `self._ranker.rank_opportunities()` and `self._close_unprofitable_positions()`. New intelligence code must intercept or augment these decision points without breaking the existing flow.
-- v1.0's PositionSizer has a clean interface (`calculate_matching_quantity`). Dynamic sizing must extend, not replace, this interface.
-- The OpportunityRanker scores by `net_yield_per_period`. Trend analysis adds new scoring dimensions that could accidentally suppress all opportunities or override risk limits.
-- RuntimeConfig handles dashboard overrides. New strategy parameters need to integrate without breaking existing config flow.
-- In-memory position tracking (`PositionManager._positions`) has no persistence. If the backtester accidentally shares state with live components, positions could be corrupted.
+- Aggregate win rate is the most psychologically salient metric for beginners. "60% win rate" sounds great. But if average winner = $2 and average loser = $10, expected value per trade is negative.
+- The equity curve smooths noise through its line chart presentation. A strategy that has a smooth upward equity curve with a sudden cliff at the end looks almost identical to a consistently good strategy when the cliff is off-screen or at the tail.
+- The current `BacktestMetrics` has `net_pnl`, `total_fees`, `total_funding`, `sharpe_ratio`, `max_drawdown`, `win_rate`. Missing: average win vs. average loss, profit factor, maximum consecutive losses, time in drawdown, holding period distribution.
+- When adding trade-level detail, showing a long table of individual trades creates information overload. Users scan for confirming evidence (green rows) and skip the important patterns (clusters of losses, long drawdown periods).
 
 **Consequences:**
-- Bot stops opening positions (over-cautious intelligence layer).
-- Bot opens positions it shouldn't (intelligence layer overrides risk limits).
-- Paper trading P&L tracking breaks (new code mutates shared PnLTracker state).
-- Dashboard shows incorrect data (new analytics interfere with existing metrics).
-- Emergency stop fails because new code path doesn't respect `_running` flag.
+- User sees "Sharpe 2.1, 65% win rate, $340 net profit" and concludes the strategy works.
+- They miss that the strategy had a 3-week drawdown period, 12 consecutive losses in March, and the entire profit came from 2 lucky trades on a single pair.
+- User deploys, hits the inevitable losing streak, and abandons the strategy at exactly the wrong time.
 
 **Prevention:**
-- **Strategy pattern:** Create a `StrategyEngine` interface with two implementations: `SimpleThresholdStrategy` (v1.0 behavior, extracted from current orchestrator) and `IntelligentStrategy` (v1.1 with trend analysis). The orchestrator calls `strategy.evaluate(opportunities)` instead of inline logic. v1.0 behavior must be preservable by switching strategy implementations.
-- **Feature flag:** Add `strategy_mode: Literal["simple", "intelligent"] = "simple"` to config. v1.0 behavior is the default. v1.1 must be opt-in.
-- **Isolation:** Backtesting engine must NEVER share instances with live components. No shared PositionManager, PnLTracker, or TickerService between backtest and live/paper.
-- **Regression test suite:** Before v1.1, extract v1.0 integration tests as a regression suite. Every v1.1 change must pass the v1.0 regression tests.
-- **Read-only intelligence:** The trend analysis and sizing layer should only *advise* (return scores/sizes); the existing orchestrator/risk manager should remain the sole decision maker. Never let the intelligence layer directly call `open_position()` or `close_position()`.
+- **Always show profit factor** (gross wins / gross losses). Profit factor < 1.0 = losing strategy regardless of win rate. This is the single most honest metric.
+- **Show average winner vs. average loser** side by side. If avg_loser > 2x avg_winner, flag it.
+- **Show maximum consecutive losses** and **maximum drawdown duration** (not just depth). A 3-week drawdown is psychologically devastating even if the dollar amount is small.
+- **Highlight trade clustering:** "80% of profits came from 3 trades" is a critical insight. Compute and display profit concentration (top N trades as % of total profit).
+- **In the equity curve, mark individual trades** as dots/markers at entry and exit. Color by outcome. This prevents the smooth-line illusion from hiding clustered losses.
+- **Show holding period distribution** as a histogram. A strategy that holds for 1 period (8h) most of the time is fundamentally different from one that holds for 30 periods.
+- **Add "strategy health" indicators:**
+  - Expectancy per trade = (win_rate * avg_win) - (loss_rate * avg_loss)
+  - If expectancy is positive but less than estimated slippage+fees, flag it
+  - If more than 50% of profit comes from a single trade, flag it
 
 **Detection:**
-- v1.0 regression tests fail after v1.1 changes.
-- Paper trading with `strategy_mode=simple` behaves differently than v1.0.
-- Dashboard metrics diverge from expected values with intelligence layer disabled.
-- Position count exceeds `max_simultaneous_positions` (intelligence bypassed risk check).
+- User runs multiple backtests and always picks the one with the highest win rate, ignoring profit factor.
+- Backtest shows positive net PnL but profit factor < 1.2 (fragile).
+- Equity curve looks good but max consecutive losses > 8 (psychologically unsustainable).
 
-**Phase assignment:** First phase of v1.1 -- extract strategy interface BEFORE adding intelligence.
+**Phase assignment:** Trade Replay phase -- must be addressed when adding per-trade detail. The trade table is not enough; contextual metrics are required.
 
 ---
 
-### Pitfall 4: Survivorship Bias in Historical Funding Rate Data
+### Pitfall 4: Dynamic Funding Intervals Breaking Yield Calculations and Comparisons
 
-**What goes wrong:** Backtesting only uses pairs that currently exist on Bybit. Pairs that were delisted, rug-pulled, or had their perpetual contracts removed are absent from historical data. This makes the strategy appear more profitable because it never encounters the losing scenarios of entering positions on pairs that subsequently failed.
+**What goes wrong:** Bybit launched dynamic settlement frequency on October 30, 2025. Some pairs now switch between 8h, 4h, 2h, and 1h intervals based on market volatility. The Pair Explorer and Strategy Builder compute per-period and annualized yields assuming a fixed interval, producing incorrect comparisons between pairs with different intervals and incorrect historical analysis when a pair's interval changed mid-dataset.
 
 **Why it happens:**
-- Bybit's `/v5/market/funding/history` only returns data for currently listed symbols. Delisted symbols return empty results.
-- The v1.0 `fetch_perpetual_symbols()` method filters for currently active `linear + swap` markets. Historical analysis using this list misses pairs that existed 6 months ago but are now gone.
-- Crypto markets delist 5-15% of perpetual contracts per year. These are disproportionately the ones with extreme funding rates (which would have been highly ranked by the opportunity ranker).
-- The most dangerous pairs for funding rate arbitrage (extreme rates on illiquid tokens) are the most likely to be delisted.
+- The existing `HistoricalFundingRate` model has `interval_hours: int = 8` as a default. If the fetched data doesn't include interval info (the Bybit funding history API response does NOT include `fundingIntervalHours`), all records default to 8h.
+- The `insert_funding_rates` method extracts interval from `r.get("info", {}).get("fundingIntervalHours", 8)`. If the ccxt `info` dict doesn't include this field for historical records, the default of 8 is silently applied.
+- BTCUSDT and ETHUSDT are EXCLUDED from dynamic frequency. But most altcoin pairs are subject to it. A user comparing "BTCUSDT at 0.01%/8h" with "SOLUSDT at 0.01%/1h" needs to understand these represent very different annualized yields (10.95% vs 87.6%).
+- Historical data before October 2025 is all 8h. After October 2025, the same pair may have mixed intervals. Computing "average funding rate" or "median rate" across mixed intervals produces nonsensical results.
 
 **Consequences:**
-- Backtest overestimates returns by 5-20% because it never simulates entering (and being trapped in) pairs that were subsequently delisted.
-- Optimal parameters are biased toward aggressive entry on high-rate pairs -- exactly the ones most likely to be delisted.
-- Strategy appears to work on all pair counts, but in reality, some percentage would have resulted in locked positions or forced exits at bad prices.
+- Pair Explorer ranks a pair as "high yield" because it had many 1h funding settlements (high raw count) without adjusting for the shorter interval.
+- Historical statistics (mean, percentile, distribution) are invalid when computed across mixed intervals without weighting.
+- Net yield calculations using amortized fees assume a fixed holding-period count. A pair that settles every 1h during volatility generates more fee events than one settling every 8h, changing the fee-to-funding ratio.
+- User sees "SOLUSDT has 3x more funding events than BTCUSDT" and misinterprets volume of settlements as profitability.
 
 **Prevention:**
-- Build a historical pair registry: periodically snapshot all available perpetual symbols (weekly cron job) and store them. Include symbol, first_seen, last_seen, is_active.
-- For backtesting, include pairs that existed at each historical point, even if they are now delisted. Mark delisted pair entries in backtest results.
-- If historical data for delisted pairs is unavailable from Bybit API, apply a survivorship bias adjustment: assume X% of high-rate opportunities would have resulted in adverse exits (use 5-10% as a conservative estimate based on crypto delisting rates).
-- Filter by CoinGlass or similar third-party data sources that archive historical funding rates for delisted pairs.
-- At minimum, document which pairs are excluded and flag the bias in backtest reports.
+- **Normalize all rates to a common time unit** (e.g., per-day or per-8h-equivalent) before comparison. `normalized_rate = rate * (8 / actual_interval_hours)` converts any interval to 8h-equivalent.
+- **Store actual interval per funding record,** not a default. If the API doesn't provide it, infer from timestamp gaps: if consecutive records are 1h apart, the interval was 1h.
+- **Display interval alongside rate** in every table and chart: "0.01% / 8h" not just "0.01%". Never show a bare rate without its period.
+- **When computing historical statistics**, group by interval or normalize first. "Average rate" should be "average 8h-equivalent rate."
+- **Add interval change markers** to time-series charts. When a pair's interval changes from 8h to 1h (indicating volatility), mark it visually. This is information the user needs.
+- **In Strategy Builder comparisons**, use the same time normalization. "Strategy A earned $50 from 6 funding events" vs. "Strategy B earned $50 from 48 funding events" tells a very different story about consistency.
 
 **Detection:**
-- Compare the pair count in backtest vs the pair count in v1.0 live data. If backtest has fewer pairs, survivorship bias is likely.
-- Check if any top-performing backtest pairs are suspiciously "clean" -- no periods of extreme negative funding, no liquidity dips, no sudden exits.
-- Cross-reference backtest pair list against Bybit delisting announcements.
+- Pair rankings change dramatically when switching between raw rates and normalized rates.
+- Historical statistics show impossible values (e.g., >100% annualized from a pair that was rarely above 0.01%/8h, because 1h intervals were counted as 8h).
+- Backtest for post-October-2025 data shows different results than expected.
 
-**Phase assignment:** Historical data collection phase -- must be addressed when building the data pipeline.
+**Phase assignment:** Pair Explorer AND data layer -- must be addressed when building any yield display. Requires data layer changes to properly store and retrieve interval information.
 
 ---
 
-### Pitfall 5: Funding Rate Trend Analysis Producing False Signals
+### Pitfall 5: Confirmation Bias Amplification Through Cherry-Picked Backtest Visualization
 
-**What goes wrong:** Trend analysis (moving averages, momentum indicators on funding rates) generates entry/exit signals that are worse than the v1.0 simple threshold. Funding rates are not prices -- they are periodic settlement values that behave differently from price time series. Standard technical analysis indicators produce excessive false signals.
+**What goes wrong:** The Strategy Builder allows the user to run backtests with different parameters across different pairs and date ranges. The user unconsciously (or consciously) cherry-picks the combination that looks best: favorable pair, favorable date range, favorable parameters. The dashboard facilitates this by making it easy to run many tests and hard to see the full distribution of results.
 
 **Why it happens:**
-- Funding rates update every 8 hours (3 data points per day). Standard moving averages need 20+ data points for meaningful signals, meaning a 20-period MA spans 6.7 days. By the time the MA confirms a trend, the opportunity is often over.
-- Funding rates are mean-reverting by design (the funding mechanism pushes futures toward spot price). Trend-following indicators are designed for trending series, not mean-reverting ones.
-- Extreme funding rates (>0.1%/8h) are often short-lived spikes caused by liquidation cascades or event-driven positioning. Trend indicators smooth these out, causing the bot to miss profitable spikes while entering on lagging signals.
-- Rate changes between 8h periods can be abrupt and discontinuous (e.g., 0.05% to -0.02% in one period). Indicators assuming smooth data produce meaningless crossovers.
+- The current backtest form (in `backtest_form.html`) lets the user choose symbol, date range, and parameters independently. Nothing prevents running BTC from Jan-June 2025 (bull market), seeing great results, then running ETH from Jul-Dec 2025 (bear market), seeing bad results, and only remembering the BTC result.
+- Each backtest is standalone. There is no persistent record of "I ran 15 backtests and 3 looked good." The user only sees the last result.
+- The equity curve display makes it very easy to "look good" by narrowing the date range to exclude drawdown periods. A strategy that lost money Jan-March but made money April-June looks great if you only test April-June.
+- Research on cognitive biases in data visualization shows that confirmation bias is the most amplified bias when users can interactively filter and explore data. Users seek confirming evidence and ignore disconfirming evidence.
 
 **Consequences:**
-- Trend analysis triggers entries *after* the profitable period has passed (lagging).
-- Trend analysis filters *out* profitable spike opportunities that v1.0 would have captured.
-- Net result: fewer trades, worse timing, lower returns than v1.0's simple threshold.
-- Complexity added without benefit, making the system harder to debug and maintain.
+- User deploys a strategy that "worked" on one pair for one 3-month period, not realizing it failed on 4 other pairs and 3 other time periods.
+- Strategy Builder becomes a tool for self-deception rather than honest discovery.
+- User develops unfounded confidence that erodes when live results diverge from their cherry-picked backtest.
 
 **Prevention:**
-- Do NOT apply standard price-based indicators (RSI, MACD, Bollinger Bands) directly to funding rates without modification. Funding rates are structurally different from price series.
-- Focus on regime detection rather than trend following: is the market in a "high funding" regime (sustained rates > threshold) or "low funding" regime? Use regime classification (e.g., Hidden Markov Model or simple threshold-based state machine), not moving averages.
-- If using moving averages, use short windows (3-5 periods = 1-1.7 days) and compare against v1.0 baseline on every test.
-- Consider rate-of-change rather than absolute trends: "funding rate is accelerating upward" is more actionable than "funding rate is above its 20-period MA."
-- Academic research supports funding rate predictability using DAR (double autoregressive) models, but notes predictability is "time-varying." Simple approaches may outperform complex ones.
-- Always benchmark against v1.0: any trend signal must demonstrably outperform simple thresholding on out-of-sample data.
+- **Maintain a backtest session log:** Every backtest run is recorded with its parameters and results. Show a summary: "You've run 12 backtests. 4 were profitable, 8 were not. Best: X. Worst: Y."
+- **Show cross-pair results by default.** When the user tests a strategy, automatically show results across all available pairs, not just the selected one. "This configuration on BTC: +$340. On all 20 pairs: +$120 avg, -$450 worst, 12/20 profitable."
+- **Require minimum date range** for strategy evaluation. Prevent testing on less than 3 months of data. Show a warning for less than 6 months.
+- **Show both the best and worst backtest** for a configuration. "Best case: +$500 on ETH. Worst case: -$200 on DOGE. Are you comfortable with the worst case?"
+- **Add a "robustness check" feature** that automatically runs the strategy across all pairs and a rolling window, presenting aggregate results. This is the antidote to cherry-picking.
+- **Display the parameter stability heatmap** from v1.1's sweep feature prominently. If the strategy only works with very specific parameters, the heatmap will show a narrow bright spot surrounded by red -- visually obvious fragility.
 
 **Detection:**
-- Trade count drops significantly compared to v1.0 (trend filter is too conservative).
-- Average entry timing is later than v1.0 (lagging signal).
-- Win rate improves but total profit drops (catching fewer but "surer" trades that don't compensate for missed opportunities).
-- Trend signals are highly correlated with each other across pairs (all pairs enter/exit together, reducing diversification).
+- User runs many backtests on different pairs but only references the best-performing one.
+- Deployed strategy parameters don't match the "typical" backtest result.
+- Live performance is significantly worse than the backtest the user cited.
 
-**Phase assignment:** Trend analysis development -- must be validated against v1.0 baseline before integration.
+**Phase assignment:** Strategy Builder -- must be part of the strategy comparison workflow, not an afterthought.
 
 ---
 
 ## Moderate Pitfalls
 
-Significant issues that degrade backtest accuracy or strategy performance but are recoverable.
+Significant issues that degrade analysis quality or produce misleading results, but are recoverable with better design.
 
-### Pitfall 6: Unrealistic Fill Assumptions in Backtesting
+### Pitfall 6: Funding Rate Distribution Statistics Without Fee Context
 
-**What goes wrong:** The backtester assumes instant fills at exact prices (like v1.0's PaperExecutor with 5bps slippage). In reality, during high-funding-rate periods (when the bot would be most active), spreads widen, slippage increases, and partial fills occur. Backtest overstates achievable returns.
+**What goes wrong:** The Pair Explorer displays funding rate distributions (histogram, percentiles, mean, median) for each pair. A beginner sees "median rate is 0.015%/8h, 75th percentile is 0.03%" and concludes this is profitable, without understanding that the break-even rate after fees is approximately 0.02%/8h for a 3-period hold.
 
 **Why it happens:**
-- v1.0 PaperExecutor uses a fixed `_SLIPPAGE = Decimal("0.0005")` (5bps). During volatile periods when funding rates spike, actual slippage can be 10-50bps.
-- Backtest assumes both legs (spot + perp) fill simultaneously at the same effective price. In reality, the spot-perp basis can shift between leg executions.
-- For less liquid pairs (which often have the highest funding rates), order book depth may not support the backtest's assumed position size without market impact.
-- Funding rate settlement times (00:00, 08:00, 16:00 UTC) are high-activity periods with elevated spreads.
+- Statistical summaries of raw funding rates ignore the cost structure. A distribution centered at 0.015% looks "mostly positive" but is actually "mostly below break-even."
+- The existing `FeeCalculator` can compute the break-even rate, but it's not integrated into statistical displays.
+- Percentile displays without reference lines create false baselines. "75th percentile = 0.03%" means nothing without knowing that "break-even = 0.02%."
+- Beginners don't intuitively understand that "positive funding rate" does not mean "profitable trade" because fees must be overcome first.
 
 **Prevention:**
-- Model slippage as a function of volume and volatility, not a fixed constant. Use `slippage = base_slippage * (1 + volatility_multiplier)` where volatility_multiplier increases during high-funding periods.
-- For each backtest trade, check whether the assumed position size is realistic given historical volume. If position size > 1% of the pair's 24h volume, flag as potentially unrealistic.
-- Add a "conservative" backtest mode that doubles slippage and fees -- if the strategy is still profitable under conservative assumptions, it's more likely to work live.
-- Fetch historical OHLCV data (available via Bybit API, 1000 candles per request) to estimate spreads during the backtest period.
+- **Overlay break-even rate** on every funding rate distribution chart. Draw a vertical line at the computed break-even rate. Color the area below it red ("unprofitable zone") and above it green.
+- **Show "time above break-even"** as a percentage: "This pair was above break-even 42% of the time over the last 6 months." This is the real profitability signal.
+- **Replace raw percentile tables** with net-yield percentile tables: show the distribution of `rate - amortized_fee_per_period`, not just `rate`.
+- **Add a "fee drag" indicator** prominently: "Round-trip fees consume the first X periods of funding for this pair." Make the cost tangible.
 
 **Detection:**
-- Backtest profit per trade is significantly higher than v1.0 paper trading profit per trade.
-- Backtest shows profitable trades on pairs where v1.0 paper trading had negative slippage impact.
-- Average slippage in backtest < 5bps during periods when live spreads exceeded 10bps.
+- User is excited about a pair with "mostly positive" funding rates that actually shows negative backtest returns.
+- Distribution charts show green/positive but paired backtest shows losses.
 
-**Phase assignment:** Backtesting engine -- realistic execution simulation.
+**Phase assignment:** Pair Explorer statistical analysis -- must be addressed when building distribution displays.
 
 ---
 
-### Pitfall 7: Bybit API Rate Limits During Historical Data Collection
+### Pitfall 7: Equity Curve Visual Deception Through Scale and Smoothing
 
-**What goes wrong:** Fetching historical funding rates for 200+ perpetual pairs exhausts API rate limits, causing data collection to fail partway through or take excessively long. The bot gets IP-banned (403) during data collection, which also blocks live trading operations if sharing the same IP.
+**What goes wrong:** The existing equity curve chart uses `tension: 0.3` (cubic interpolation) which smooths the line between data points. It also auto-scales the Y-axis to fill the chart, making a $10 profit on a $10,000 account look like a dramatic upswing. These visual choices make mediocre strategies look much better than they are.
 
 **Why it happens:**
-- Bybit allows 600 requests per 5-second window per IP (120/s). The funding rate history endpoint returns max 200 records per request. For 200 pairs over 6 months (540 8-hour periods each), that's 200 * 3 = 600 requests minimum (200 records per request, ~2.7 requests per pair for 6 months).
-- If also fetching OHLCV data (1000 candles per request), the request count multiplies.
-- ccxt's `enableRateLimit: True` provides basic throttling but may not account for burst patterns during bulk historical data fetches.
-- Running data collection while the live bot is also running shares the same API key rate limit pool (Bybit rate limits are per-UID for authenticated endpoints, per-IP for public endpoints).
-
-**Consequences:**
-- Data collection fails midway, producing incomplete historical datasets (some pairs have full history, others are partial).
-- If sharing IP with live bot: live trading API calls fail, potentially unable to close positions during emergencies.
-- 403 ban lasts at least 10 minutes, during which all API access is blocked.
+- Chart.js default `tension: 0.3` creates visually appealing curves that smooth over volatility. A strategy that fluctuates between $9,990 and $10,010 appears as a smooth upward slope.
+- Auto-scaling the Y-axis to the data range means a $10,000 to $10,050 chart fills the same vertical space as a $10,000 to $15,000 chart. The visual amplitude is identical despite 100x difference in actual returns.
+- The current chart doesn't show a reference line at the initial capital level ($10,000), so the user can't visually gauge "am I above or below where I started?"
+- With trade-level detail added, the equity curve will have more data points, making the smoothing effect even more pronounced.
 
 **Prevention:**
-- Historical data collection MUST run on a separate schedule from live trading, ideally as a standalone script.
-- Implement explicit rate limiting: max 50 requests per 5 seconds for historical data (well under the 600/5s limit to leave headroom for live operations).
-- Use public endpoints for funding rate history (no auth required, IP-limited only). Run from a separate IP if possible.
-- Implement incremental collection: store last-fetched timestamp per pair, only fetch new data on subsequent runs.
-- Add progress tracking and resumability: if collection is interrupted, restart from where it left off.
-- Cache aggressively: funding rates are immutable once settled. Never re-fetch data you already have.
-- Batch by symbol: fetch all history for one pair before moving to the next, so partial collection still gives complete data for some pairs.
+- **Use `tension: 0` (straight lines between points)** for honest representation. Every dip and spike should be visible.
+- **Pin Y-axis minimum to 0 or to a percentage below initial capital.** Show the full context: "$10,050 on $10,000" should not fill the chart. Alternatively, display returns as percentage: "0.5% return" is much more honest than a chart that appears to show dramatic growth.
+- **Add a horizontal reference line** at initial capital ($10,000). Everything below is loss territory. Color the area below it red.
+- **Show return percentage as the primary Y-axis**, not dollar amounts. "$10,050" looks like growth; "0.5% return" shows reality.
+- **Add drawdown shading** below the equity curve high-water mark. This makes drawdown periods visually obvious rather than hidden by scale.
+- **When comparing strategies**, use the same Y-axis scale. The comparison chart in `renderComparisonEquityCurve` already uses shared axes, which is correct.
 
 **Detection:**
-- API error logs show 429 or 403 responses during data collection.
-- Historical dataset has gaps (some pairs have data, others don't).
-- Live trading operations slow down or fail during data collection runs.
-- Data collection takes more than 30 minutes for a 6-month dataset.
+- User describes backtest results as "the chart looks great" but actual returns are < 1%.
+- Strategy comparisons where one appears dramatically better but the actual difference is < $50.
 
-**Phase assignment:** Historical data pipeline -- must be solved before backtesting can begin.
+**Phase assignment:** Trade Replay and Decision View -- must be addressed when enhancing equity curve visualization.
 
 ---
 
-### Pitfall 8: Dynamic Position Sizing Based on Backtested Returns
+### Pitfall 8: Per-Pair Profitability Analysis Without Time Segmentation
 
-**What goes wrong:** The dynamic sizing model uses backtest-derived metrics (expected return, Sharpe ratio) to scale position sizes. Because backtest returns are inflated by the biases above (look-ahead, survivorship, unrealistic fills), position sizes are too large. The system over-allocates to strategies/pairs that appeared profitable in backtest but aren't live.
+**What goes wrong:** The Pair Explorer shows "this pair earned $X total over the last 6 months" as a single aggregate number. The user doesn't see that all the profit came from one 2-week period and the other 5.5 months were flat or negative. Aggregate per-pair profitability masks the temporal distribution of returns.
 
 **Why it happens:**
-- Conviction-based sizing ("higher rate = larger position") seems logical, but the relationship between funding rate magnitude and trade profitability is noisy.
-- Historical funding rates show that extreme rates (>0.1%/8h) are often followed by rapid reversals. Sizing up on extreme rates increases exposure right when the rate is most likely to mean-revert.
-- If sizing model uses backtest volatility estimates, it underestimates real volatility (backtest doesn't capture execution risk, gap risk, or sudden rate changes).
-- Kelly criterion or similar optimal sizing formulas require accurate win rate and payoff estimates -- backtest-derived estimates are biased upward.
-
-**Consequences:**
-- Over-sized positions during rate reversals cause larger losses than v1.0's fixed sizing.
-- Concentrated exposure to a few "high conviction" pairs reduces the diversification benefit of multi-pair trading.
-- Margin utilization increases, reducing buffer for emergency situations.
-- The "intelligent" sizing performs worse than v1.0's simple fixed $1000 per position.
+- The simplest profitability display is "total net yield" or "average rate." Both hide temporal clustering.
+- Funding rate profitability is highly regime-dependent. A pair might have extreme positive rates during one market event and be neutral the rest of the time.
+- Without monthly or weekly breakdowns, the user cannot distinguish "consistently profitable" from "one-time windfall."
+- The current analytics module (`metrics.py`) computes lifetime metrics. There's no built-in time-segmented analysis.
 
 **Prevention:**
-- Start with conservative scaling: v1.1 dynamic sizing should range from 0.5x to 1.5x of v1.0's fixed size, not 0.1x to 5x.
-- Cap maximum position size at v1.0's `max_position_size_per_pair` ($1000). Dynamic sizing can only *reduce* from the max, never exceed it. Let the existing RiskManager enforce the ceiling.
-- Use rate of change (is the funding rate increasing or decreasing?) rather than absolute level for sizing decisions.
-- Apply sizing half-life: increase size gradually over multiple funding periods of sustained high rates, rather than jumping to max on the first high rate observation.
-- Decouple sizing from backtest returns entirely for initial deployment. Use simple heuristics (rate percentile across all pairs) instead of model-derived conviction scores.
-- Test dynamic sizing with historical data where positions are forced to use the same fixed slippage and fee assumptions as v1.0, to ensure the sizing improvement is real.
+- **Show monthly profitability breakdown** for each pair. A simple bar chart: Jan=$10, Feb=$-5, Mar=$20, etc. This instantly reveals temporal clustering.
+- **Compute "consistency score"**: what percentage of months was the pair net-profitable? "6/6 months profitable" is much more convincing than "+$50 total" which could be "+$100 in January, -$50 over the next 5 months."
+- **Highlight the "best month contribution"**: "60% of this pair's total profit came from March 2025." If one month dominates, flag it.
+- **Show rolling 30-day profitability** as a time series, not just the aggregate. This reveals trends and regime changes.
 
 **Detection:**
-- Average position size is significantly larger than v1.0's fixed size.
-- Position size variance is high (some positions 5x others).
-- Largest losses come from the largest positions.
-- Portfolio PnL is more volatile than v1.0 despite supposedly better strategy.
+- User selects a pair based on high aggregate profitability that turns out to have been profitable in one burst.
+- Backtest shows strong results but monthly breakdown reveals inconsistency.
 
-**Phase assignment:** Dynamic sizing development -- must be bounded by existing risk limits.
+**Phase assignment:** Pair Explorer and Decision View -- must be addressed when building per-pair profitability displays.
 
 ---
 
-### Pitfall 9: Correlation Underestimation Across Funding Rate Pairs
+### Pitfall 9: Strategy Builder Allowing Parameter Combinations That Can't Work
 
-**What goes wrong:** The bot opens multiple large positions across "different" pairs, but during market stress, funding rates across all pairs move together (correlation -> 1.0). What looked like diversified exposure becomes concentrated directional risk.
+**What goes wrong:** The Strategy Builder form allows arbitrary parameter combinations, including ones that are logically impossible or guaranteed to lose money. For example: entry threshold lower than exit threshold (never holds a position), signal weights that don't sum to 1.0, or minimum funding rates below the break-even point.
 
 **Why it happens:**
-- Crypto funding rates are driven by aggregate market sentiment. During bull markets, most pairs have high positive rates. During corrections, most rates collapse simultaneously.
-- The current v1.0 RiskManager checks `max_simultaneous_positions` (5) and `max_position_size_per_pair` ($1000). It does NOT check correlation between open positions.
-- If dynamic sizing increases sizes on "high conviction" pairs, and all of them are correlated (BTC/USDT, ETH/USDT, SOL/USDT all have similar funding rate patterns), the effective portfolio risk is much larger than the sum of individual position risks suggests.
-- Altcoin funding rates are heavily influenced by BTC. Having 5 positions in different altcoins provides less diversification than it appears.
-
-**Consequences:**
-- Simultaneous drawdown across all positions during market correction.
-- Margin utilization spikes as all pairs move adversely at once.
-- Exit becomes difficult as liquidity dries up simultaneously across all pairs.
-- Portfolio max drawdown is much larger than backtest predicted (backtest tested pairs individually).
+- The current backtest form (`backtest_form.html`) has independent number inputs for each parameter with no cross-field validation. The `_build_config_from_body` function in `api.py` accepts whatever the user provides.
+- `BacktestConfig` is a pure dataclass with no validation logic. Invalid combinations produce confusing backtest results (0 trades, NaN metrics) rather than clear error messages.
+- A beginner doesn't know which parameter combinations are valid. They might set `exit_threshold = 0.5` and `entry_threshold = 0.3`, which means the strategy enters only when the score is above 0.3 but exits when it drops below 0.5 -- so it exits immediately after entry.
 
 **Prevention:**
-- Add a portfolio-level exposure check to RiskManager: total portfolio notional must not exceed X% of available capital, regardless of per-pair limits.
-- Group pairs by underlying correlation (BTC-correlated, ETH-ecosystem, stablecoin pairs). Limit exposure per group.
-- During dynamic sizing, reduce individual position sizes when multiple positions are open: `effective_size = base_size * (1 / sqrt(num_open_positions))` as a simple diversification discount.
-- Monitor rolling correlation between open position funding rates. If correlation exceeds 0.8, reduce total exposure.
-- v1.0's fixed size of $1000 across 5 positions = $5000 max. v1.1 should not exceed this without explicit portfolio-level validation.
+- **Add form-level validation** that checks constraints before submitting:
+  - `entry_threshold > exit_threshold` (otherwise immediate exit)
+  - `min_funding_rate >= 0` (negative entry threshold makes no sense for this strategy)
+  - Signal weights should sum to approximately 1.0 (warn if < 0.8 or > 1.2)
+  - `exit_funding_rate < min_funding_rate` (otherwise never enters)
+- **Show computed break-even rate** as the parameter is entered. "With these fees, you need at least 0.02%/period to break even. Your entry threshold allows rates down to 0.01%/period."
+- **Add "sensible defaults" presets**: "Conservative," "Balanced," "Aggressive" preset configurations that are known to be valid. Let beginners start from presets rather than blank forms.
+- **When a backtest produces 0 trades**, explain WHY: "No trades occurred because the entry threshold (0.3) was never reached during this period" rather than showing a flat equity curve with no explanation.
 
 **Detection:**
-- All open positions have similar funding rate levels (all high or all low).
-- Portfolio PnL shows large synchronized moves (all positions profit/loss together).
-- Historical correlation analysis shows >0.7 average correlation between open pairs' funding rates.
-- Max drawdown in live trading is >2x the backtest-predicted max drawdown.
+- User runs backtests that produce 0 trades and doesn't understand why.
+- User sets contradictory parameters (entry < exit threshold) and sees confusing results.
 
-**Phase assignment:** Dynamic sizing and risk management -- extend RiskManager before enabling dynamic sizing.
+**Phase assignment:** Strategy Builder form -- validation must be part of the form implementation.
 
 ---
 
-### Pitfall 10: Historical Data Gaps and Inconsistencies
+### Pitfall 10: Decision View Presenting Correlation as Causation
 
-**What goes wrong:** Bybit historical funding rate data has gaps, inconsistent intervals, and timestamp precision issues that produce incorrect backtest results. The backtester treats data as complete and evenly spaced when it isn't.
+**What goes wrong:** The Decision View shows historical evidence like "when funding rate was above 0.03%, the strategy was profitable 70% of the time." The beginner interprets this as "if I enter when the rate is above 0.03%, I will be profitable 70% of the time." This is correlation (historical pattern) presented as causation (predictive rule).
 
 **Why it happens:**
-- Bybit changed funding intervals for some pairs over time (some moved from 8h to 4h to 1h). Historical data mixes intervals without clear markers.
-- Exchange maintenance windows sometimes skip funding settlements. These missing data points appear as gaps.
-- The API returns 200 records per request with timestamp-based pagination. Off-by-one errors in pagination logic cause duplicated or missing records (documented in ccxt issue #15990).
-- Some pairs have funding rate history starting from their listing date, not from the backtest start date. Backtest must handle varying data availability per pair.
-- Timezone handling: Bybit timestamps are in milliseconds, but funding settlements occur at fixed UTC times. Misalignment between data timestamps and settlement times causes incorrect period assignments.
-
-**Consequences:**
-- Backtest calculates incorrect number of funding periods (missing gaps = fewer payments than expected).
-- Mixed interval data causes incorrect annualization (8h data treated as 4h or vice versa).
-- Pagination bugs produce duplicated funding payments (inflating backtest returns) or missing payments (deflating returns).
-- Backtest results vary depending on data collection timing, making results non-reproducible.
+- Historical success rates are backward-looking. "70% win rate when rate > 0.03%" means that in the past, this happened. It does not account for regime changes, survivorship bias, or look-ahead effects in the historical data.
+- The Decision View is specifically designed to answer "should I turn this on?" If it presents historical statistics without uncertainty, it becomes a false oracle.
+- Beginners are especially susceptible to interpreting historical patterns as future guarantees. Professional traders understand that "past performance is not indicative of future results" but beginners take historical statistics at face value.
 
 **Prevention:**
-- After fetching data, validate: sort by timestamp, check for duplicates (same timestamp+symbol), verify consistent interval spacing within each pair.
-- Store `interval_hours` per data point (from `fundingIntervalHour` field, already in v1.0's FundingRateData model). Use per-record interval, not a global assumption.
-- Flag gaps: if time between consecutive records exceeds `1.5 * expected_interval`, mark as a gap. Don't interpolate -- the backtest should skip gap periods for that pair.
-- ccxt pagination workaround: provide both `since` and `until` parameters explicitly (not just `since` + `limit`, per ccxt issue #15990 fix). Verify record count matches expected count for the time range.
-- Add a data integrity report to the data pipeline: for each pair, output record count, expected count, gap count, duplicate count. Fail loudly if discrepancies exceed 5%.
-- Store raw API responses alongside parsed data for auditability.
+- **Always show confidence intervals**, not point estimates. "Win rate: 70% (95% CI: 55%-82%)" is much more honest than "70%."
+- **Show the worst historical period**, not just the average. "Average win rate: 70%. Worst month: 30%."
+- **Compare against random baseline**: "Is this 70% win rate actually better than random entry? Random entry in this period: 62% win rate." If the strategy barely beats random, the "discovery" is likely noise.
+- **Add explicit disclaimer** on every predictive display: "Historical results. Actual performance depends on future market conditions which may differ."
+- **Show how the win rate changed over time**: "Win rate by quarter: Q1=80%, Q2=60%, Q3=75%, Q4=55%." Declining trend should trigger caution.
+- **Never present a single "should I turn this on?" score.** Present evidence for and against, and let the user decide. The dashboard should inform, not recommend.
 
 **Detection:**
-- Data record count doesn't match expected count (time_range / interval_hours).
-- Duplicate timestamps in the dataset.
-- Annualized yield calculations produce implausible values (>500% or <-100%).
-- Backtest results change when data is re-fetched (non-deterministic).
+- User deploys a strategy "because the Decision View said 70% win rate" without understanding the confidence interval.
+- Live performance is significantly below the historical average shown in Decision View.
 
-**Phase assignment:** Historical data pipeline -- data quality checks before backtesting.
+**Phase assignment:** Decision View -- must be addressed in the summary dashboard design.
 
 ---
 
 ## Minor Pitfalls
 
-Issues that cause confusion or inefficiency but are unlikely to produce material losses.
+Issues that cause confusion or inefficiency but are unlikely to produce material financial harm.
 
-### Pitfall 11: Backtester Performance -- Slow Iteration Cycles
+### Pitfall 11: Information Overload in Trade Replay Killing Actionable Insight
 
-**What goes wrong:** The backtesting engine is too slow for interactive parameter exploration. Running a 6-month backtest across 200 pairs takes hours, making walk-forward validation impractical and reducing research velocity.
-
-**Why it happens:**
-- Using Decimal arithmetic (v1.0 standard) for all backtest calculations. Decimal is 10-100x slower than float for arithmetic operations.
-- Simulating the full orchestrator cycle (scan-rank-decide-execute) for each 8h period across 200 pairs.
-- Loading historical data from API on every run instead of caching locally.
-- Not vectorizing calculations (pure Python loops instead of pandas/numpy for analysis).
+**What goes wrong:** Trade Replay adds per-trade detail (entry reason, exit reason, holding period, fee breakdown, funding payments). Showing all of this for every trade creates a data wall that the user can't parse. They either ignore it entirely or fixate on individual trades rather than seeing patterns.
 
 **Prevention:**
-- Use float for backtest calculations (acceptable for simulation) and Decimal only for live trading. This is a deliberate exception to v1.0's "Decimal everywhere" rule -- backtesting is analysis, not execution.
-- Pre-load all historical data into memory at backtest start. A 6-month dataset for 200 pairs at 8h intervals is ~200 * 540 = 108,000 records -- trivially fits in memory.
-- Cache historical data locally (SQLite or Parquet files). Only fetch from API for new data since last collection.
-- Profile before optimizing: the bottleneck is likely data loading or fee calculation, not the decision logic.
+- **Show summary first, detail on demand.** Default view: trade list with outcome (green/red), net PnL, holding period. Click to expand: full detail with entry/exit reasons, fee breakdown, funding schedule.
+- **Aggregate into patterns:** "Trades entered on RISING trend: 8 trades, 6 profitable. Trades entered on STABLE trend: 12 trades, 5 profitable." This reveals actionable patterns that individual trade inspection misses.
+- **Limit initial display to 20-30 trades** with pagination. Showing 500 trades at once is never useful.
+- **Highlight "interesting" trades:** the biggest winner, biggest loser, longest hold, shortest hold. These outliers tell the story.
 
-**Phase assignment:** Backtesting engine architecture.
+**Phase assignment:** Trade Replay -- part of the trade detail UI design.
 
 ---
 
-### Pitfall 12: Conflating Strategy Improvement with Market Regime Change
+### Pitfall 12: Stale Data Creating False Signals in the Pair Explorer
 
-**What goes wrong:** v1.1 is deployed during a favorable market regime, and the team attributes the improvement to the intelligence layer rather than to market conditions. Or conversely, v1.1 is deployed during an unfavorable regime, and the intelligence layer is abandoned despite being genuinely better.
+**What goes wrong:** The Pair Explorer shows funding rate statistics computed from the full historical dataset (up to 365 days). If the data hasn't been synced recently, the "current" display is stale. A user sees a pair ranked highly based on data that's hours or days old, enters a position, and finds the rate has already changed.
 
 **Prevention:**
-- Always run v1.0 baseline alongside v1.1 (even if only in paper mode). Compare performance on the same time period.
-- Use risk-adjusted metrics (Sharpe ratio, Sortino ratio) rather than absolute returns for comparison.
-- Require a minimum sample size (50+ trades) before drawing conclusions about v1.1 vs v1.0.
-- Document market conditions during evaluation periods (BTC price trend, overall market sentiment, average funding rates).
+- **Show "last synced" timestamp** prominently on every data display. "Data as of: Feb 13, 2026 09:15 UTC."
+- **Separate "current rate" from "historical statistics."** Current rate should come from the live `FundingMonitor`, historical stats from the data store. Don't mix them.
+- **Gray out or badge stale data.** If last sync was > 8h ago, show a warning: "Data may be stale. Last sync: 12h ago."
+- The existing `HistoricalDataStore.get_data_status()` returns `last_sync_ms`. Use it.
 
-**Phase assignment:** Post-deployment evaluation -- define evaluation criteria before deployment.
+**Phase assignment:** Pair Explorer -- must be addressed in the display layer.
 
 ---
 
-### Pitfall 13: Strategy State Management Between Restarts
+### Pitfall 13: Comparing Strategy Configurations Without Controlling for Time Period
 
-**What goes wrong:** The trend analysis module maintains state (moving averages, regime classification, historical windows) in memory. When the bot restarts, this state is lost, causing incorrect signals until the state is rebuilt. v1.0 doesn't have this problem because it's stateless (each cycle makes decisions based only on current data).
+**What goes wrong:** The Strategy Builder lets the user compare Configuration A (tested on BTC, Jan-Mar 2025) with Configuration B (tested on ETH, Apr-Jun 2025). The comparison is invalid because it varies three things simultaneously (parameters, pair, and time period), but the user draws conclusions about the parameters.
 
 **Prevention:**
-- Design trend analysis as a pure function of historical data: `calculate_signal(historical_rates[-N:])` rather than maintaining running state.
-- If running state is necessary for performance, implement state serialization (save to disk on each cycle, load on restart).
-- On restart, the intelligence layer should either (a) load saved state, or (b) fall back to v1.0 simple threshold behavior until enough data accumulates.
-- Add a "warmup period" concept: strategy reports LOW confidence for the first N periods after restart.
+- **When comparing configurations, require the same pair and time period** for a valid comparison. The existing `/backtest/compare` endpoint already enforces this for v1.0 vs v1.1 comparison. Extend this pattern.
+- **Show a "comparison validity" indicator**: "Same pair + same period = Valid comparison. Different pair or period = Informational only."
+- **Default comparison mode** should fix pair and time period, varying only strategy parameters. This is the only scientifically valid comparison.
+- **If the user wants cross-pair comparison**, show it as a matrix: rows = pairs, columns = configurations, cells = net PnL. This makes it visually clear that multiple variables are changing.
 
-**Phase assignment:** Trend analysis development -- state management design.
+**Phase assignment:** Strategy Builder comparison feature.
 
 ---
 
-### Pitfall 14: Backtesting the Wrong Baseline
+### Pitfall 14: Existing Backtest Engine Limitations Amplified by Trade-Level Display
 
-**What goes wrong:** The backtest compares v1.1 against a theoretical "perfect" strategy or against "buy and hold BTC" rather than against the actual v1.0 behavior. v1.1 may look good against buy-and-hold but be worse than v1.0.
+**What goes wrong:** The current backtest engine has known limitations (from v1.1 PITFALLS): fixed 5bps slippage, single-pair-at-a-time simulation, no multi-pair portfolio simulation. When Trade Replay surfaces per-trade detail, these limitations become more visible and more misleading. A trade showing "$2.50 profit" at the individual level masks that the slippage model is crude and the actual profit might be anywhere from $0.50 to $4.00.
 
 **Prevention:**
-- The first thing the backtest framework should produce is a v1.0 baseline simulation: apply v1.0's exact logic (simple threshold entry at 0.03%, exit at 0.01%, fixed $1000 sizing, max 5 positions) to the historical data.
-- All v1.1 comparisons must be against this v1.0 baseline, not against "no trading" or "buy and hold."
-- Implement `SimpleThresholdStrategy` as the first backtesting strategy. Verify it produces results consistent with v1.0 paper trading before building `IntelligentStrategy`.
+- **Show slippage assumption on every trade.** "Entry slippage: 5bps ($0.50). This is an estimate; actual slippage varies."
+- **Add a "confidence range" to per-trade PnL**: "$2.50 +/- $1.00 (sensitivity to slippage)." Compute this by running the trade at 0bps and 15bps slippage.
+- **Flag trades where fees dominate:** If entry+exit fees > 50% of gross funding income, highlight it. These trades are highly sensitive to execution quality.
+- **Don't compute statistics to more precision than the model supports.** Showing "$2.4731 net PnL" implies false precision. Round to cents or use ranges.
 
-**Phase assignment:** Backtesting engine -- implement v1.0 baseline strategy first.
+**Phase assignment:** Trade Replay -- must accompany per-trade detail display.
 
 ---
 
@@ -412,67 +370,95 @@ Issues that cause confusion or inefficiency but are unlikely to produce material
 
 | Phase Topic | Likely Pitfall | Severity | Mitigation |
 |---|---|---|---|
-| Historical data pipeline | API rate limits (#7) | Critical | Separate script, rate throttling, incremental collection |
-| Historical data pipeline | Data gaps/inconsistencies (#10) | Moderate | Validation pipeline, gap detection, interval tracking |
-| Historical data pipeline | Survivorship bias (#4) | Critical | Pair registry, delisting tracking |
-| Backtesting engine | Look-ahead bias (#1) | Critical | `as_of` temporal enforcement, predicted vs settled rate separation |
-| Backtesting engine | Unrealistic fills (#6) | Moderate | Variable slippage model, volume-based validation |
-| Backtesting engine | Wrong baseline (#14) | Minor | Implement v1.0 baseline first |
-| Backtesting engine | Slow iteration (#11) | Minor | Float for backtest, local data cache |
-| Parameter optimization | Overfitting (#2) | Critical | Walk-forward validation, parameter stability checks |
-| Trend analysis | False signals (#5) | Critical | Mean-reversion-aware indicators, v1.0 benchmark |
-| Trend analysis | State management (#13) | Minor | Pure functions or serializable state |
-| Dynamic sizing | Backtest-based sizing (#8) | Moderate | Conservative bounds, cap at v1.0 max |
-| Dynamic sizing | Correlation risk (#9) | Moderate | Portfolio-level exposure limits, correlation monitoring |
-| Integration | Breaking v1.0 (#3) | Critical | Strategy pattern, feature flags, regression tests |
-| Evaluation | Regime conflation (#12) | Minor | Parallel v1.0 baseline, risk-adjusted metrics |
+| Pair Explorer: yield display | Annualized yield illusion (#1) | **Critical** | Show per-period net yield, break-even context, holding-period returns |
+| Pair Explorer: pair selection | Survivorship bias (#2) | **Critical** | Point-in-time pairs, tenure display, disclaimers |
+| Pair Explorer: distributions | Statistics without fees (#6) | Moderate | Break-even overlay, net-yield percentiles |
+| Pair Explorer: data freshness | Stale data (#12) | Minor | Last-synced timestamp, live vs historical separation |
+| Trade Replay: trade list | Information overload (#11) | Minor | Summary first, detail on demand, pattern aggregation |
+| Trade Replay: per-trade PnL | Aggregate metrics hiding reality (#3) | **Critical** | Profit factor, avg winner/loser, consecutive losses, concentration |
+| Trade Replay: equity curve | Visual deception (#7) | Moderate | No smoothing, percentage axis, drawdown shading, reference line |
+| Trade Replay: precision | Amplified engine limits (#14) | Minor | Slippage disclosure, confidence ranges, rounding |
+| Strategy Builder: form | Invalid parameters (#9) | Moderate | Cross-field validation, presets, break-even display |
+| Strategy Builder: comparison | Cherry-picking (#5) | **Critical** | Session log, cross-pair defaults, robustness checks |
+| Strategy Builder: comparison | Uncontrolled variables (#13) | Minor | Same-pair-same-period enforcement, validity indicator |
+| Decision View: recommendations | Correlation as causation (#10) | Moderate | Confidence intervals, worst period, random baseline comparison |
+| Decision View: summary | Annualized yield (#1) | **Critical** | Per-period framing, fee context, holding-period returns |
+| Data layer: intervals | Dynamic intervals (#4) | **Critical** | Rate normalization, per-record intervals, interval display |
+| All visualizations | Confirmation bias amplification (#5) | **Critical** | Session logs, cross-pair defaults, worst-case display |
 
 ---
 
-## The Meta-Pitfall: Complexity Without Improvement
+## The Meta-Pitfall: Building a Tool That Confirms What the User Wants to Hear
 
-The single most likely failure mode of v1.1 is adding complexity that makes the system harder to understand, debug, and maintain without actually improving performance over v1.0's simple threshold approach.
+The single most dangerous outcome of v1.2 is building a strategy discovery tool that makes every strategy look good. A beginner WANTS to believe the strategy works. The dashboard should fight this tendency, not enable it.
 
-**The v1.0 system works.** It has a clear, auditable decision process: scan rates, rank by net yield, enter above threshold, exit below threshold. Every added component (trend analysis, dynamic sizing, optimized thresholds) must demonstrably improve on this baseline.
+**Design principle:** Every visualization should include at least one element that could discourage the user from trading. If every screen makes the strategy look appealing, the tool is broken.
 
-**Decision framework for every v1.1 feature:**
-1. Does it beat v1.0 on out-of-sample data?
-2. Does it beat v1.0 across multiple market regimes?
-3. Is the improvement large enough to justify the added complexity?
-4. Can it be disabled instantly to fall back to v1.0 behavior?
+Specific applications:
+- **Pair Explorer**: For every pair, show "time below break-even" prominently. If it's 60%, the user should feel cautious.
+- **Trade Replay**: Show the worst trade first, not the best. Lead with the downside.
+- **Strategy Builder**: Show cross-pair results by default, not single-pair. Most configs lose on most pairs.
+- **Decision View**: Never give a single "yes/no" answer. Present evidence and uncertainty. Let the user decide.
 
-If any answer is "no" or "not sure," don't ship it.
+**The v1.0/v1.1 system works as a trading engine.** The v1.2 system's job is to help the user understand WHETHER and WHEN to use it. That means showing the full picture -- including the parts that suggest caution.
+
+---
+
+## Bybit-Specific Concerns Carried Forward
+
+These known concerns from v1.1 become more acute in v1.2 because they directly affect the accuracy of analysis shown to the user.
+
+### Concern A: Bybit Fee Structure Verification
+
+**Status:** VERIFIED. Current Bybit Non-VIP rates match the code: spot taker 0.1%, perp taker 0.055%. This was confirmed against Bybit's official fee page as of February 2026.
+
+**v1.2 Impact:** Fee calculations in Pair Explorer and Strategy Builder are correct for Non-VIP users. However, if the user has VIP status (lower fees), the displayed break-even rates and profitability calculations will be conservative. Consider adding a fee tier selector in the Strategy Builder.
+
+### Concern B: Look-Ahead Bias (Predicted vs Settled Rates)
+
+**Status:** PARTIALLY ADDRESSED. The v1.1 `BacktestDataStoreWrapper` enforces temporal ordering. However, the historical data store contains SETTLED rates while the live bot uses PREDICTED rates. This discrepancy remains.
+
+**v1.2 Impact:** Trade Replay will show trades entered based on settled rates that were not actually available at decision time. Per-trade detail makes this more visible: "Entered because rate was 0.05%" -- but was it 0.05% at entry time, or is that the settled rate that was only known afterward? Surface this distinction in Trade Replay: "Rate at settlement: 0.05%. Note: decision was based on predicted rate, which may have differed."
+
+### Concern C: Funding Rate Trend Mean-Reversion
+
+**Status:** ACKNOWLEDGED in v1.1 signal engine design. EMA span kept short (6 periods).
+
+**v1.2 Impact:** The Pair Explorer's trend indicators (if displayed) should carry a note: "Funding rate trends are mean-reverting. A rising trend is likely to reverse." This directly counters the beginner's tendency to extrapolate trends.
 
 ---
 
 ## Sources
 
 ### Bybit Official Documentation
-- [Bybit Funding Rate History API](https://bybit-exchange.github.io/docs/v5/market/history-fund-rate) -- endpoint constraints, 200 records/request limit, timestamp parameters -- HIGH confidence
-- [Bybit Rate Limits](https://bybit-exchange.github.io/docs/v5/rate-limit) -- 600 requests/5s per IP, per-UID limits by endpoint category -- HIGH confidence
+- [Bybit Funding Rate History API](https://bybit-exchange.github.io/docs/v5/market/history-fund-rate) -- endpoint constraints, response fields (does NOT include interval_hours), pagination -- HIGH confidence
+- [Bybit Dynamic Settlement Frequency Announcement](https://www.prnewswire.com/news-releases/bybit-launches-dynamic-settlement-frequency-system-for-perpetual-contracts-302598179.html) -- October 2025 launch, affected pairs, frequency rules -- HIGH confidence
+- [Bybit Trading Fee Structure](https://www.bybit.com/en/help-center/article/Trading-Fee-Structure/) -- Non-VIP rates confirmed: spot 0.1%/0.1%, perp 0.02%/0.055% -- HIGH confidence
+- [Bybit Funding Rate Introduction](https://www.bybit.com/en/help-center/article/Introduction-to-Funding-Rate) -- funding rate mechanics, settlement times -- HIGH confidence
 
-### ccxt Library Issues
-- [ccxt #15990: Bybit fetchFundingRateHistory since/limit bug](https://github.com/ccxt/ccxt/issues/15990) -- pagination requires explicit endTime -- HIGH confidence
-- [ccxt #17854: Bug in fetchOpenInterestHistory/fetchFundingRateHistory for Bybit](https://github.com/ccxt/ccxt/issues/17854) -- 200 record limit per call -- HIGH confidence
+### Backtesting Methodology and Visualization
+- [Backtesting Common Mistakes (QuantInsti)](https://blog.quantinsti.com/common-mistakes-backtesting/) -- overfitting, unrealistic assumptions, data issues -- MEDIUM confidence
+- [Equity Curve Backtesting (FasterCapital)](https://fastercapital.com/content/Equity-Curve-Backtesting--Evaluating-Strategies-for-Profitability.html) -- equity curve interpretation pitfalls -- MEDIUM confidence
+- [Interpreting Backtest Results (FX Replay)](https://www.fxreplay.com/learn/how-to-interpret-backtest-results-a-traders-guide-to-smarter-strategy-decisions) -- trade-level metrics, profit factor, drawdown -- MEDIUM confidence
+- [Backtesting Strategies That Actually Work (Billions Club)](https://www.fortraders.com/blog/backtesting-strategies-that-actually-work) -- over-optimization, curve fitting -- MEDIUM confidence
 
-### Backtesting Methodology
-- [Starqube: 7 Deadly Sins of Backtesting](https://starqube.com/backtesting-investment-strategies/) -- overfitting, look-ahead bias, survivorship bias -- MEDIUM confidence
-- [LuxAlgo: Backtesting Traps](https://www.luxalgo.com/blog/backtesting-traps-common-errors-to-avoid/) -- common errors, detection methods -- MEDIUM confidence
-- [Interactive Brokers: Walk-Forward Analysis](https://www.interactivebrokers.com/campus/ibkr-quant-news/the-future-of-backtesting-a-deep-dive-into-walk-forward-analysis/) -- WFO methodology -- MEDIUM confidence
-- [Adventures of Greg: Survivorship Bias in Backtesting](http://adventuresofgreg.com/blog/2026/01/14/survivorship-bias-backtesting-avoiding-traps/) -- practical crypto examples -- MEDIUM confidence
-- [Portfolio Optimization: Dangers of Backtesting](https://bookdown.org/palomar/portfoliooptimizationbook/8.3-dangers-backtesting.html) -- academic treatment of biases -- MEDIUM confidence
+### Survivorship Bias
+- [Building Survivorship-Bias-Free Crypto Dataset (Concretum Group)](https://concretumgroup.com/building-a-survivorship-bias-free-crypto-dataset-with-coinmarketcap-api/) -- 4x profit difference, dataset methodology -- MEDIUM confidence
+- [Survivorship Bias in Trading (Quantified Strategies)](https://www.quantifiedstrategies.com/survivorship-bias-in-backtesting/) -- impact estimates, prevention methods -- MEDIUM confidence
+- [Survivorship Bias in Backtesting (LuxAlgo)](https://www.luxalgo.com/blog/survivorship-bias-in-backtesting-explained/) -- crypto-specific survivorship effects -- MEDIUM confidence
+- [Survivorship Bias (Bookmap)](https://bookmap.com/blog/survivorship-bias-in-market-data-what-traders-need-to-know) -- market data quality impacts -- MEDIUM confidence
 
-### Funding Rate Research
-- [QuantJourney: Funding Rates in Crypto](https://quantjourney.substack.com/p/funding-rates-in-crypto-the-hidden) -- signal interpretation, false positives, regime changes -- MEDIUM confidence
-- [Amberdata: Ultimate Guide to Funding Rate Arbitrage](https://blog.amberdata.io/the-ultimate-guide-to-funding-rate-arbitrage-amberdata) -- execution challenges, volatility impact -- MEDIUM confidence
-- [SSRN: Predictability of Funding Rates](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=5576424) -- DAR models, time-varying predictability -- MEDIUM confidence
-- [ScienceDirect: Risk and Return Profiles of Funding Rate Arbitrage](https://www.sciencedirect.com/science/article/pii/S2096720925000818) -- CEX correlation, returns analysis -- MEDIUM confidence
-- [CoinAPI: Historical Data for Perpetual Futures](https://www.coinapi.io/blog/historical-data-for-perpetual-futures) -- data gaps, missing data, format challenges -- MEDIUM confidence
+### Funding Rate Arbitrage Research
+- [Risk and Return Profiles of Funding Rate Arbitrage (ScienceDirect)](https://www.sciencedirect.com/science/article/pii/S2096720925000818) -- 17% of observations show significant spreads, 40% generate positive returns -- MEDIUM confidence
+- [Funding Rates: Hidden Cost and Strategy Trigger (QuantJourney)](https://quantjourney.substack.com/p/funding-rates-in-crypto-the-hidden) -- rate reversals, regime changes, false signals -- MEDIUM confidence
+- [Funding Rate Arbitrage Illusion vs Reality](https://vocus.cc/article/69247fa6fd89780001a58f88) -- annualization problems, borrowing costs -- MEDIUM confidence
+- [Crypto Funds 101: Funding Fee Arbitrage (1Token)](https://blog.1token.tech/crypto-fund-101-funding-fee-arbitrage-strategy/) -- ADL risk, transaction cost impact, position adjustment costs -- MEDIUM confidence
+- [Gate.com: Perpetual Contract Funding Rate Arbitrage 2025](https://www.gate.com/learn/articles/perpetual-contract-funding-rate-arbitrage/2166) -- average annual return 19.26% in 2025 -- LOW confidence
 
-### Crypto Trading Bot Practices
-- [Gate.com: Crypto Trading Bot Pitfalls](https://www.gate.com/news/detail/13225882) -- overoptimization, complexity risks -- LOW confidence
-- [Altrady: Dynamic Position Sizing Tips](https://www.altrady.com/blog/crypto-paper-trading/risk-management-seven-tips) -- correlation creep, volatility-adjusted sizing -- LOW confidence
-- [3Commas: Backtesting AI Crypto Trading](https://3commas.io/blog/comprehensive-2025-guide-to-backtesting-ai-trading) -- general best practices -- LOW confidence
+### Cognitive Bias and Visualization Research
+- [Cognitive Biases in Visualizations (Ellis)](https://aedeegee.github.io/bookchapter18.pdf) -- framing, anchoring, confirmation bias in data viz -- MEDIUM confidence
+- [Data Visualization and Cognitive Biases in Audits (ResearchGate)](https://www.researchgate.net/publication/335157173_Data_visualization_and_cognitive_biases_in_audits) -- five major bias types in data visualization -- MEDIUM confidence
+- [Trading Metrics Guide (Edgewonk)](https://edgewonk.com/blog/the-ultimate-guide-to-the-10-most-important-trading-metrics) -- profit factor, expectancy, win rate interpretation -- MEDIUM confidence
 
 ### Codebase Analysis
-- v1.0 source code reviewed: orchestrator.py, config.py, position/sizing.py, market_data/opportunity_ranker.py, risk/manager.py, models.py, exchange/bybit_client.py, market_data/funding_monitor.py, pnl/tracker.py, analytics/metrics.py, execution/paper_executor.py, position/manager.py -- HIGH confidence for integration pitfall analysis
+- v1.0/v1.1 source code reviewed: `backtest/models.py`, `backtest/engine.py`, `data/store.py`, `data/fetcher.py`, `data/models.py`, `data/pair_selector.py`, `pnl/fee_calculator.py`, `signals/engine.py`, `analytics/metrics.py`, `market_data/opportunity_ranker.py`, `config.py`, `dashboard/routes/api.py`, `dashboard/routes/pages.py`, `dashboard/templates/partials/equity_curve.html`, `dashboard/templates/partials/backtest_form.html` -- HIGH confidence for integration pitfall analysis
