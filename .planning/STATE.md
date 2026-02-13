@@ -11,11 +11,11 @@ See: .planning/PROJECT.md (updated 2026-02-13)
 
 Milestone: v1.2 Strategy Discovery
 Phase: 11 of 11 (Decision Context)
-Plan: 1 of 2 in current phase
-Status: In Progress
-Last activity: 2026-02-13 -- Completed 11-01 (DecisionEngine Backend)
+Plan: 2 of 2 in current phase
+Status: Complete
+Last activity: 2026-02-13 -- Completed 11-02 (Decision Context UI)
 
-Progress: [██████████████████████████████] 97% (36/37 plans across all milestones; 10/11 v1.2 plans)
+Progress: [██████████████████████████████] 100% (37/37 plans across all milestones; 11/11 v1.2 plans)
 
 ## Performance Metrics
 
@@ -37,8 +37,8 @@ Progress: [███████████████████████
 | 7. Dynamic Position Sizing | 2/2 | 6min | Complete |
 
 **Velocity (v1.2):**
-- Total plans completed: 10
-- Total execution time: ~31min
+- Total plans completed: 11
+- Total execution time: ~35min
 
 **By Phase (v1.2):**
 
@@ -47,7 +47,7 @@ Progress: [███████████████████████
 | 8. Pair Analysis Foundation | 2/2 | 6min | Complete |
 | 9. Trade Replay | 3/3 | 8min | Complete |
 | 10. Strategy Builder Visualization | 3/3 | 13min | Complete |
-| 11. Decision Context | 1/2 | 4min | In Progress |
+| 11. Decision Context | 2/2 | 8min | Complete |
 
 ## Accumulated Context
 
@@ -84,6 +84,10 @@ All decisions logged in PROJECT.md Key Decisions table.
 - Summary route registered before symbol:path route for correct FastAPI matching (11-01)
 - DecisionEngine only created when data_store is available, same guard as PairAnalyzer (11-01)
 - Empty weights dict in SignalBreakdown since CompositeSignal does not carry weight config (11-01)
+- Used CSS group-hover tooltips instead of JS tooltip library for zero-dependency glossary (11-02)
+- Blue/cyan/amber/gray palette for decision badges to avoid collision with green/red rate colors (11-02)
+- Cards sorted by recommendation quality for quick visual scanning (11-02)
+- Decision contexts fetched in both WebSocket update loop and dashboard index for consistent experience (11-02)
 
 ### Pending Todos
 
@@ -100,6 +104,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-13
-Stopped at: Completed 11-01-PLAN.md (DecisionEngine Backend)
+Stopped at: Completed 11-02-PLAN.md (Decision Context UI) -- Phase 11 complete, v1.2 milestone complete
 Resume file: None
-Next step: Execute 11-02-PLAN.md (Decision Context UI)
+Next step: All plans complete. v1.2 Strategy Discovery milestone finished.
