@@ -22,7 +22,9 @@ from bot.backtest.models import (
     BacktestConfig,
     BacktestMetrics,
     BacktestResult,
+    BacktestTrade,
     EquityPoint,
+    TradeStats,
 )
 from bot.analytics.metrics import max_drawdown, sharpe_ratio, win_rate
 from bot.config import BacktestSettings, FeeSettings, TradingSettings
@@ -419,14 +421,14 @@ class BacktestEngine:
                     error=str(e),
                 )
 
-        # 7. Compute metrics
-        metrics = self._compute_metrics(total_trades)
+        # 7. Compute metrics and extract trades
+        metrics, trades, trade_stats = self._compute_metrics()
 
         logger.info(
             "backtest_complete",
             symbol=symbol,
             strategy_mode=self._config.strategy_mode,
-            total_trades=total_trades,
+            total_trades=metrics.total_trades,
             net_pnl=str(metrics.net_pnl),
             equity_points=len(equity_curve),
         )
@@ -435,6 +437,8 @@ class BacktestEngine:
             config=self._config,
             equity_curve=equity_curve,
             metrics=metrics,
+            trades=trades,
+            trade_stats=trade_stats,
         )
 
     def _compute_current_exposure(self) -> Decimal:
@@ -530,17 +534,27 @@ class BacktestEngine:
 
         return should_open, should_close
 
-    def _compute_metrics(self, total_trades: int) -> BacktestMetrics:
-        """Compute backtest metrics from PnLTracker state.
+    def _compute_metrics(
+        self,
+    ) -> tuple[BacktestMetrics, list[BacktestTrade], TradeStats | None]:
+        """Compute backtest metrics and extract per-trade detail.
 
-        Args:
-            total_trades: Total number of position opens + closes.
+        Extracts trades from PnLTracker closed positions, computes
+        TradeStats, and builds BacktestMetrics using correct round-trip
+        trade counts.
 
         Returns:
-            BacktestMetrics with all computed values.
+            Tuple of (BacktestMetrics, trades list, TradeStats or None).
         """
         portfolio = self._pnl_tracker.get_portfolio_summary()
         closed_positions = self._pnl_tracker.get_closed_positions()
+
+        # Build trades list from closed positions (oldest first)
+        trades = [
+            BacktestTrade.from_position_pnl(p, i + 1)
+            for i, p in enumerate(reversed(closed_positions))
+        ]
+        trade_stats = TradeStats.from_trades(trades) if trades else None
 
         # Compute analytics metrics from closed positions
         sharpe = sharpe_ratio(closed_positions) if closed_positions else None
@@ -551,15 +565,12 @@ class BacktestEngine:
         duration_ms = self._config.end_ms - self._config.start_ms
         duration_days = max(1, duration_ms // (86400 * 1000))
 
-        return BacktestMetrics(
-            total_trades=total_trades,
-            winning_trades=sum(
-                1
-                for p in closed_positions
-                if sum((fp.amount for fp in p.funding_payments), Decimal("0"))
-                - p.entry_fee
-                - p.exit_fee
-                > Decimal("0")
+        # Use round-trip trade count (closed positions) instead of
+        # open+close event count (per research Pitfall 1)
+        metrics = BacktestMetrics(
+            total_trades=len(closed_positions),
+            winning_trades=(
+                trade_stats.winning_trades if trade_stats else 0
             ),
             net_pnl=portfolio["net_portfolio_pnl"],
             total_fees=portfolio["total_fees_paid"],
@@ -569,6 +580,8 @@ class BacktestEngine:
             win_rate=wr,
             duration_days=duration_days,
         )
+
+        return metrics, trades, trade_stats
 
     def _empty_result(self) -> BacktestResult:
         """Return an empty BacktestResult for when no data is available."""
@@ -589,4 +602,6 @@ class BacktestEngine:
                     (self._config.end_ms - self._config.start_ms) // (86400 * 1000),
                 ),
             ),
+            trades=[],
+            trade_stats=None,
         )

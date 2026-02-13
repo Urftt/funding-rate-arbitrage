@@ -4,8 +4,9 @@ Generates all combinations of parameter values via itertools.product,
 runs a backtest for each, and returns a SweepResult with metrics.
 
 Memory management: Only the best result (highest net P&L) retains its
-full equity curve. All other results have their equity curves discarded
-after metrics extraction.
+full equity curve and trades list. All other results have their equity
+curves and trades lists discarded after metrics extraction. Compact
+trade_stats are retained for all results.
 
 BKTS-03: Parameter sweep over entry/exit thresholds and signal weights.
 
@@ -125,27 +126,32 @@ class ParameterSweep:
 
             # Track best result
             if result.metrics.net_pnl > best_pnl:
-                # Discard equity curve from previous best
+                # Discard equity curve and trades from previous best
                 if best_index >= 0:
+                    prev = results[best_index][1]
                     results[best_index] = (
                         results[best_index][0],
                         BacktestResult(
-                            config=results[best_index][1].config,
+                            config=prev.config,
                             equity_curve=[],
-                            metrics=results[best_index][1].metrics,
+                            trades=[],
+                            trade_stats=prev.trade_stats,
+                            metrics=prev.metrics,
                         ),
                     )
                 best_pnl = result.metrics.net_pnl
                 best_index = len(results)
-                # Keep full equity curve for new best
+                # Keep full equity curve and trades for new best
                 results.append((params, result))
             else:
-                # Discard equity curve to save memory
+                # Discard equity curve and trades to save memory
                 results.append((
                     params,
                     BacktestResult(
                         config=result.config,
                         equity_curve=[],
+                        trades=[],
+                        trade_stats=result.trade_stats,
                         metrics=result.metrics,
                     ),
                 ))
