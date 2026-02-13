@@ -112,3 +112,10 @@ async def backtest_page(request: Request) -> HTMLResponse:
         "request": request,
         "tracked_pairs": tracked_pairs,
     })
+
+
+@router.get("/pairs", response_class=HTMLResponse)
+async def pairs_page(request: Request) -> HTMLResponse:
+    """Pair Explorer page for browsing historical funding rate profitability (EXPR-01)."""
+    templates: Jinja2Templates = request.app.state.templates
+    return templates.TemplateResponse("pairs.html", {"request": request})
