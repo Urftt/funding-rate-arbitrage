@@ -87,12 +87,12 @@ Plans:
   3. User can view a funding rate distribution histogram for any individual pair
   4. User can compare rate distributions across pairs via box plots on a single chart
   5. User can filter pairs by market cap tier (mega, large, mid, small) using CoinGecko data, and see a historical performance summary card
-**Plans**: TBD
+**Plans:** 3 plans
 
 Plans:
-- [ ] 10-01: Multi-pair backtest execution and comparison table
-- [ ] 10-02: Strategy presets and aggregate summaries
-- [ ] 10-03: Distribution histograms, box plots, and market cap filtering
+- [ ] 10-01: Multi-pair backtest execution (MultiPairResult, run_multi_pair, API, form UI, comparison table)
+- [ ] 10-02: Strategy presets (STRATEGY_PRESETS dict, API endpoint, preset buttons, form pre-fill)
+- [ ] 10-03: Distribution histograms, box plots, CoinGecko market cap filtering, and performance summary
 
 ### Phase 11: Decision Context
 **Goal**: User can see actionable, evidence-backed recommendations on existing dashboard panels that answer "should I trade this pair?"
