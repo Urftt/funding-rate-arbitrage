@@ -38,7 +38,7 @@ See `.planning/milestones/v1.1-ROADMAP.md` for full details.
 **Key constraints:** All features are read-only on existing data. Zero new Python dependencies. One CDN addition (boxplot plugin). One external API (CoinGecko free tier). No trading engine changes.
 
 - [x] **Phase 8: Pair Analysis Foundation** - User can explore and compare pairs by historical funding rate profitability (completed 2026-02-13)
-- [ ] **Phase 9: Trade Replay** - User can inspect individual backtest trades to understand why strategies win or lose
+- [x] **Phase 9: Trade Replay** - User can inspect individual backtest trades to understand why strategies win or lose (completed 2026-02-13)
 - [ ] **Phase 10: Strategy Builder & Visualization** - User can test strategies across multiple pairs and analyze rate distributions
 - [ ] **Phase 11: Decision Context** - User can see actionable recommendations backed by historical evidence
 
@@ -73,9 +73,9 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 09-01-PLAN.md -- BacktestTrade/TradeStats models, trade extraction from PnLTracker, histogram binning, sweep memory management (TDD)
-- [ ] 09-02-PLAN.md -- Trade log table with expandable rows, win/loss summary stats card, backtest.html JS wiring
-- [ ] 09-03-PLAN.md -- Trade entry/exit scatter markers on equity curve, P&L distribution bar chart histogram
+- [x] 09-01: BacktestTrade/TradeStats models, trade extraction from PnLTracker, histogram binning, sweep memory management (TDD)
+- [x] 09-02: Trade log table with expandable rows, win/loss summary stats card, backtest.html JS wiring
+- [x] 09-03: Trade entry/exit scatter markers on equity curve, P&L distribution bar chart histogram
 
 ### Phase 10: Strategy Builder & Visualization
 **Goal**: User can test parameter configurations across multiple pairs simultaneously, compare results, and explore rate distributions with statistical depth
@@ -126,6 +126,6 @@ Phases execute in numeric order: 8 → 9 → 10 → 11
 | 6. Backtest Engine | v1.1 | 4/4 | Complete | 2026-02-12 |
 | 7. Dynamic Position Sizing | v1.1 | 2/2 | Complete | 2026-02-12 |
 | 8. Pair Analysis Foundation | v1.2 | 2/2 | Complete | 2026-02-13 |
-| 9. Trade Replay | v1.2 | 0/3 | Not started | - |
+| 9. Trade Replay | v1.2 | 3/3 | Complete | 2026-02-13 |
 | 10. Strategy Builder & Visualization | v1.2 | 0/3 | Not started | - |
 | 11. Decision Context | v1.2 | 0/2 | Not started | - |
