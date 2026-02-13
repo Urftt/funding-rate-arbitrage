@@ -4,19 +4,38 @@
 
 {% block head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/@sgratzl/chartjs-chart-boxplot@4"></script>
 {% endblock %}
 
 {% block content %}
 <div class="space-y-6">
-    <!-- Header row with title and date range buttons -->
+    <!-- Header row with title, tier filter, and date range buttons -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <h2 class="text-2xl font-bold text-white">Pair Explorer</h2>
-        <div class="flex items-center gap-2" id="range-buttons">
-            <button data-range="7d" class="px-3 py-1.5 text-sm rounded bg-dash-card text-gray-400 border border-dash-border hover:text-white">7D</button>
-            <button data-range="30d" class="px-3 py-1.5 text-sm rounded bg-dash-card text-gray-400 border border-dash-border hover:text-white">30D</button>
-            <button data-range="90d" class="px-3 py-1.5 text-sm rounded bg-dash-card text-gray-400 border border-dash-border hover:text-white">90D</button>
-            <button data-range="all" class="px-3 py-1.5 text-sm rounded bg-blue-600 text-white">All</button>
+        <div class="flex flex-wrap items-center gap-4">
+            <!-- Tier filter buttons -->
+            <div class="flex items-center gap-2" id="tier-buttons">
+                <span class="text-xs text-gray-500 mr-1">Tier:</span>
+                <button data-tier="all" class="px-2 py-1 text-xs rounded bg-blue-600 text-white">All</button>
+                <button data-tier="mega" class="px-2 py-1 text-xs rounded bg-dash-card text-gray-400 border border-dash-border hover:text-white">Mega</button>
+                <button data-tier="large" class="px-2 py-1 text-xs rounded bg-dash-card text-gray-400 border border-dash-border hover:text-white">Large</button>
+                <button data-tier="mid" class="px-2 py-1 text-xs rounded bg-dash-card text-gray-400 border border-dash-border hover:text-white">Mid</button>
+                <button data-tier="small" class="px-2 py-1 text-xs rounded bg-dash-card text-gray-400 border border-dash-border hover:text-white">Small</button>
+            </div>
+            <!-- Date range buttons -->
+            <div class="flex items-center gap-2" id="range-buttons">
+                <button data-range="7d" class="px-3 py-1.5 text-sm rounded bg-dash-card text-gray-400 border border-dash-border hover:text-white">7D</button>
+                <button data-range="30d" class="px-3 py-1.5 text-sm rounded bg-dash-card text-gray-400 border border-dash-border hover:text-white">30D</button>
+                <button data-range="90d" class="px-3 py-1.5 text-sm rounded bg-dash-card text-gray-400 border border-dash-border hover:text-white">90D</button>
+                <button data-range="all" class="px-3 py-1.5 text-sm rounded bg-blue-600 text-white">All</button>
+            </div>
         </div>
+    </div>
+
+    <!-- Performance Summary Card (hidden until tier data loads) -->
+    <div id="tier-summary" class="hidden bg-dash-card rounded-lg border border-dash-border p-4">
+        <h3 class="text-white font-semibold mb-2" id="tier-summary-title">Performance Summary</h3>
+        <div id="tier-summary-cards" class="grid grid-cols-2 md:grid-cols-4 gap-4"></div>
     </div>
 
     <!-- Loading Indicator -->
@@ -32,6 +51,7 @@
                 <tr class="text-gray-400 border-b border-dash-border">
                     <th class="text-left py-2 px-2">#</th>
                     <th class="text-left py-2 px-2">Pair</th>
+                    <th class="text-right py-2 px-2" id="th-tier" class="hidden">Tier</th>
                     <th class="text-right py-2 px-2">Records</th>
                     <th class="text-right py-2 px-2">Avg Rate</th>
                     <th class="text-right py-2 px-2">Median</th>
@@ -55,7 +75,10 @@
     <div id="pair-detail" class="hidden space-y-4">
         <div class="flex items-center justify-between">
             <h3 class="text-xl font-semibold text-white" id="detail-title"></h3>
-            <button id="close-detail" class="text-gray-400 hover:text-white text-sm px-3 py-1 rounded border border-dash-border hover:border-gray-500">Close</button>
+            <div class="flex items-center gap-2">
+                <button id="btn-open-boxplot" class="text-blue-400 hover:text-blue-300 text-sm px-3 py-1 rounded border border-dash-border hover:border-blue-500">Compare Rates</button>
+                <button id="close-detail" class="text-gray-400 hover:text-white text-sm px-3 py-1 rounded border border-dash-border hover:border-gray-500">Close</button>
+            </div>
         </div>
 
         <!-- Stats Grid -->
@@ -70,6 +93,32 @@
                 <canvas id="funding-rate-chart"></canvas>
             </div>
         </div>
+
+        <!-- Rate Distribution Histogram -->
+        <div id="rate-histogram-container" class="hidden bg-dash-card rounded-lg border border-dash-border p-4">
+            <h4 class="text-white font-semibold mb-2">Funding Rate Distribution</h4>
+            <div style="position: relative; height: 250px;">
+                <canvas id="rate-histogram-chart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Box Plot Comparison Section -->
+    <div id="boxplot-section" class="hidden space-y-3">
+        <div class="flex items-center justify-between">
+            <h3 class="text-lg font-semibold text-white">Rate Distribution Comparison</h3>
+            <button id="close-boxplot" class="text-gray-400 hover:text-white text-sm px-3 py-1 rounded border border-dash-border hover:border-gray-500">Close</button>
+        </div>
+        <div class="flex items-center gap-3 mb-2 flex-wrap">
+            <span class="text-xs text-gray-400">Select pairs to compare:</span>
+            <div id="boxplot-checkboxes" class="flex flex-wrap gap-2"></div>
+            <button type="button" id="btn-render-boxplot" class="px-3 py-1 text-xs bg-blue-700 text-white rounded hover:bg-blue-600">Compare</button>
+        </div>
+        <div class="bg-dash-card rounded-lg border border-dash-border p-4">
+            <div style="position: relative; height: 350px;">
+                <canvas id="boxplot-chart"></canvas>
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}
@@ -80,18 +129,28 @@
     'use strict';
 
     // State
-    let currentRange = 'all';
-    let currentSymbol = null;
+    var currentRange = 'all';
+    var currentSymbol = null;
+    var tierData = {};
+    var currentTier = 'all';
+    var rankingData = [];
 
     // DOM elements
-    const loadingEl = document.getElementById('ranking-loading');
-    const rankingSection = document.getElementById('ranking-section');
-    const rankingBody = document.getElementById('ranking-body');
-    const emptyState = document.getElementById('empty-state');
-    const detailSection = document.getElementById('pair-detail');
-    const detailTitle = document.getElementById('detail-title');
-    const detailStats = document.getElementById('detail-stats');
-    const chartContainer = document.getElementById('chart-container');
+    var loadingEl = document.getElementById('ranking-loading');
+    var rankingSection = document.getElementById('ranking-section');
+    var rankingBody = document.getElementById('ranking-body');
+    var emptyState = document.getElementById('empty-state');
+    var detailSection = document.getElementById('pair-detail');
+    var detailTitle = document.getElementById('detail-title');
+    var detailStats = document.getElementById('detail-stats');
+    var chartContainer = document.getElementById('chart-container');
+    var histogramContainer = document.getElementById('rate-histogram-container');
+    var tierSummary = document.getElementById('tier-summary');
+    var tierSummaryTitle = document.getElementById('tier-summary-title');
+    var tierSummaryCards = document.getElementById('tier-summary-cards');
+    var boxplotSection = document.getElementById('boxplot-section');
+    var boxplotCheckboxes = document.getElementById('boxplot-checkboxes');
+    var thTier = document.getElementById('th-tier');
 
     /**
      * Format a Decimal string value as a rate percentage (4 decimal places).
@@ -135,6 +194,135 @@
     }
 
     /**
+     * Get the tier label for a symbol from tierData.
+     * @param {string} symbol - Trading pair symbol.
+     * @returns {string} Tier label or empty string.
+     */
+    function getTierLabel(symbol) {
+        var info = tierData[symbol];
+        if (!info || info.tier === 'unknown') return '';
+        var colors = {
+            'mega': 'bg-purple-600/30 text-purple-300',
+            'large': 'bg-blue-600/30 text-blue-300',
+            'mid': 'bg-green-600/30 text-green-300',
+            'small': 'bg-yellow-600/30 text-yellow-300'
+        };
+        var cls = colors[info.tier] || 'bg-gray-600/30 text-gray-300';
+        return '<span class="text-xs px-1.5 py-0.5 rounded ' + cls + '">' + info.tier + '</span>';
+    }
+
+    /**
+     * Check if tierData is loaded and has entries.
+     * @returns {boolean}
+     */
+    function hasTierData() {
+        return Object.keys(tierData).length > 0;
+    }
+
+    /**
+     * Fetch market cap tier data from API on page load.
+     */
+    fetch('/api/market-cap')
+        .then(function(resp) { return resp.json(); })
+        .then(function(data) {
+            if (!data.error) {
+                tierData = data;
+                // Show tier column header if data loaded
+                if (thTier) thTier.style.display = '';
+                // Re-render if ranking already loaded
+                if (rankingData.length > 0) {
+                    renderRankingTable(rankingData);
+                }
+            }
+        })
+        .catch(function() { /* degrade gracefully -- tier filtering disabled */ });
+
+    /**
+     * Render the ranking table from data array, applying tier filter.
+     * @param {Array} data - Array of pair stats objects.
+     */
+    function renderRankingTable(data) {
+        // Apply tier filter
+        var filtered = data;
+        if (currentTier !== 'all' && hasTierData()) {
+            filtered = data.filter(function(pair) {
+                var info = tierData[pair.symbol];
+                return info && info.tier === currentTier;
+            });
+        }
+
+        if (filtered.length === 0) {
+            rankingBody.innerHTML = '<tr><td colspan="10" class="text-center py-8 text-gray-500">No pairs match the selected tier filter.</td></tr>';
+            rankingSection.classList.remove('hidden');
+            tierSummary.classList.add('hidden');
+            return;
+        }
+
+        var showTier = hasTierData();
+
+        var rows = filtered.map(function(pair, idx) {
+            var recordsCell = pair.record_count;
+            if (!pair.has_sufficient_data) {
+                recordsCell += '<span class="ml-1 text-xs bg-yellow-600/30 text-yellow-400 px-1.5 py-0.5 rounded">Low data</span>';
+            }
+
+            var tierCell = showTier ? '<td class="text-right py-2 px-2">' + getTierLabel(pair.symbol) + '</td>' : '<td class="text-right py-2 px-2"></td>';
+
+            return '<tr class="border-b border-dash-border hover:bg-dash-bg/50">' +
+                '<td class="py-2 px-2 text-gray-500">' + (idx + 1) + '</td>' +
+                '<td class="py-2 px-2"><span class="cursor-pointer text-blue-400 hover:text-blue-300" onclick="window._showDetail(\'' + pair.symbol.replace(/'/g, "\\'") + '\')">' + pair.symbol + '</span></td>' +
+                tierCell +
+                '<td class="text-right py-2 px-2 font-mono">' + recordsCell + '</td>' +
+                '<td class="text-right py-2 px-2 font-mono">' + fmtRate(pair.avg_rate) + '</td>' +
+                '<td class="text-right py-2 px-2 font-mono">' + fmtRate(pair.median_rate) + '</td>' +
+                '<td class="text-right py-2 px-2 font-mono">' + fmtRate(pair.std_dev) + '</td>' +
+                '<td class="text-right py-2 px-2 font-mono">' + fmtPct(pair.pct_positive) + '</td>' +
+                '<td class="text-right py-2 px-2 font-mono ' + yieldColor(pair.net_yield_per_period) + '">' + fmtRate(pair.net_yield_per_period) + '</td>' +
+                '<td class="text-right py-2 px-2 font-mono ' + yieldColor(pair.annualized_yield) + '">' + fmtRate(pair.annualized_yield) + '</td>' +
+                '</tr>';
+        });
+
+        rankingBody.innerHTML = rows.join('');
+        rankingSection.classList.remove('hidden');
+
+        // Render performance summary for the filtered set
+        renderTierSummary(filtered);
+    }
+
+    /**
+     * Render the performance summary card for the filtered pairs.
+     * @param {Array} filteredPairs - Array of filtered pair stats objects.
+     */
+    function renderTierSummary(filteredPairs) {
+        if (filteredPairs.length === 0) {
+            tierSummary.classList.add('hidden');
+            return;
+        }
+
+        var yields = filteredPairs.map(function(p) { return parseFloat(p.annualized_yield) * 100; });
+        yields.sort(function(a, b) { return a - b; });
+
+        var sum = yields.reduce(function(s, v) { return s + v; }, 0);
+        var avgYield = sum / yields.length;
+        var medianYield = yields.length % 2 === 1
+            ? yields[Math.floor(yields.length / 2)]
+            : (yields[yields.length / 2 - 1] + yields[yields.length / 2]) / 2;
+        var bestYield = yields[yields.length - 1];
+        var worstYield = yields[0];
+
+        var tierName = currentTier === 'all' ? 'All' : currentTier.charAt(0).toUpperCase() + currentTier.slice(1);
+        tierSummaryTitle.textContent = tierName + ' Tier Performance Summary';
+
+        tierSummaryCards.innerHTML =
+            metricCard('Pairs', filteredPairs.length, 'text-white') +
+            metricCard('Avg Ann. Yield', avgYield.toFixed(2) + '%', avgYield >= 0 ? 'text-green-400' : 'text-red-400') +
+            metricCard('Median Ann. Yield', medianYield.toFixed(2) + '%', medianYield >= 0 ? 'text-green-400' : 'text-red-400') +
+            metricCard('Best / Worst', bestYield.toFixed(2) + '% / ' + worstYield.toFixed(2) + '%', 'text-white');
+
+        tierSummary.classList.remove('hidden');
+    }
+
+    /**
      * Fetch and render the pair ranking table.
      * @param {string} range - Date range filter: "7d", "30d", "90d", or "all".
      */
@@ -145,6 +333,7 @@
         loadingEl.classList.remove('hidden');
         rankingSection.classList.add('hidden');
         emptyState.classList.add('hidden');
+        tierSummary.classList.add('hidden');
 
         fetch('/api/pairs/ranking?range=' + encodeURIComponent(range))
             .then(function(resp) { return resp.json(); })
@@ -153,30 +342,12 @@
 
                 if (!Array.isArray(data) || data.length === 0) {
                     emptyState.classList.remove('hidden');
+                    rankingData = [];
                     return;
                 }
 
-                var rows = data.map(function(pair, idx) {
-                    var recordsCell = pair.record_count;
-                    if (!pair.has_sufficient_data) {
-                        recordsCell += '<span class="ml-1 text-xs bg-yellow-600/30 text-yellow-400 px-1.5 py-0.5 rounded">Low data</span>';
-                    }
-
-                    return '<tr class="border-b border-dash-border hover:bg-dash-bg/50">' +
-                        '<td class="py-2 px-2 text-gray-500">' + (idx + 1) + '</td>' +
-                        '<td class="py-2 px-2"><span class="cursor-pointer text-blue-400 hover:text-blue-300" onclick="window._showDetail(\'' + pair.symbol.replace(/'/g, "\\'") + '\')">' + pair.symbol + '</span></td>' +
-                        '<td class="text-right py-2 px-2 font-mono">' + recordsCell + '</td>' +
-                        '<td class="text-right py-2 px-2 font-mono">' + fmtRate(pair.avg_rate) + '</td>' +
-                        '<td class="text-right py-2 px-2 font-mono">' + fmtRate(pair.median_rate) + '</td>' +
-                        '<td class="text-right py-2 px-2 font-mono">' + fmtRate(pair.std_dev) + '</td>' +
-                        '<td class="text-right py-2 px-2 font-mono">' + fmtPct(pair.pct_positive) + '</td>' +
-                        '<td class="text-right py-2 px-2 font-mono ' + yieldColor(pair.net_yield_per_period) + '">' + fmtRate(pair.net_yield_per_period) + '</td>' +
-                        '<td class="text-right py-2 px-2 font-mono ' + yieldColor(pair.annualized_yield) + '">' + fmtRate(pair.annualized_yield) + '</td>' +
-                        '</tr>';
-                });
-
-                rankingBody.innerHTML = rows.join('');
-                rankingSection.classList.remove('hidden');
+                rankingData = data;
+                renderRankingTable(data);
             })
             .catch(function(err) {
                 loadingEl.classList.add('hidden');
@@ -186,7 +357,103 @@
     }
 
     /**
-     * Show the per-pair detail panel with stats cards and funding rate chart.
+     * Render a funding rate distribution histogram using Chart.js.
+     * @param {Object} distData - Object with bins, counts, and raw_rates arrays.
+     */
+    function renderRateHistogram(distData) {
+        var ctx = document.getElementById('rate-histogram-chart').getContext('2d');
+
+        // Destroy previous chart if exists
+        if (window._histogramChart) {
+            window._histogramChart.destroy();
+        }
+
+        window._histogramChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: distData.bins,
+                datasets: [{
+                    label: 'Count',
+                    data: distData.counts,
+                    backgroundColor: 'rgba(59, 130, 246, 0.7)',
+                    borderColor: '#3b82f6',
+                    borderWidth: 1,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: { duration: 0 },
+                plugins: {
+                    legend: { labels: { color: '#9ca3af' } }
+                },
+                scales: {
+                    x: {
+                        ticks: { color: '#6b7280', maxRotation: 45 },
+                        grid: { color: '#334155' },
+                        title: { display: true, text: 'Funding Rate', color: '#9ca3af' }
+                    },
+                    y: {
+                        ticks: { color: '#6b7280' },
+                        grid: { color: '#334155' },
+                        title: { display: true, text: 'Count', color: '#9ca3af' }
+                    }
+                }
+            }
+        });
+
+        histogramContainer.classList.remove('hidden');
+    }
+
+    /**
+     * Render a box plot chart comparing rate distributions across pairs.
+     * @param {Object} data - Object mapping symbol to array of rate strings.
+     */
+    function renderBoxPlot(data) {
+        var ctx = document.getElementById('boxplot-chart').getContext('2d');
+        if (window._boxplotChart) window._boxplotChart.destroy();
+
+        var labels = Object.keys(data).map(function(s) { return s.split('/')[0]; });
+        var rawData = Object.values(data).map(function(rates) {
+            return rates.map(function(r) { return parseFloat(r); });
+        });
+
+        window._boxplotChart = new Chart(ctx, {
+            type: 'boxplot',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Funding Rate Distribution',
+                    data: rawData,
+                    backgroundColor: 'rgba(59, 130, 246, 0.5)',
+                    borderColor: '#3b82f6',
+                    borderWidth: 1,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: { duration: 0 },
+                plugins: {
+                    legend: { labels: { color: '#9ca3af' } }
+                },
+                scales: {
+                    x: { ticks: { color: '#6b7280' }, grid: { color: '#334155' } },
+                    y: {
+                        ticks: {
+                            color: '#6b7280',
+                            callback: function(v) { return (v * 100).toFixed(4) + '%'; }
+                        },
+                        grid: { color: '#334155' },
+                        title: { display: true, text: 'Funding Rate', color: '#9ca3af' }
+                    }
+                }
+            }
+        });
+    }
+
+    /**
+     * Show the per-pair detail panel with stats cards, funding rate chart, and histogram.
      * Attached to window so onclick from innerHTML-built rows can call it.
      * @param {string} symbol - Trading pair symbol.
      */
@@ -223,6 +490,20 @@
             })
             .catch(function(err) {
                 // Silently handle detail fetch errors
+            });
+
+        // Fetch and render rate distribution histogram
+        fetch('/api/pairs/' + encodeURIComponent(symbol) + '/distribution?range=' + encodeURIComponent(currentRange))
+            .then(function(resp) { return resp.json(); })
+            .then(function(distData) {
+                if (distData.bins && distData.bins.length > 0) {
+                    renderRateHistogram(distData);
+                } else {
+                    histogramContainer.classList.add('hidden');
+                }
+            })
+            .catch(function() {
+                histogramContainer.classList.add('hidden');
             });
     };
 
@@ -319,6 +600,23 @@
         });
     });
 
+    // Tier filter button click handlers
+    var tierButtons = document.querySelectorAll('[data-tier]');
+    tierButtons.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            // Update button styles
+            tierButtons.forEach(function(b) {
+                b.className = 'px-2 py-1 text-xs rounded bg-dash-card text-gray-400 border border-dash-border hover:text-white';
+            });
+            btn.className = 'px-2 py-1 text-xs rounded bg-blue-600 text-white';
+
+            currentTier = btn.dataset.tier;
+            if (rankingData.length > 0) {
+                renderRankingTable(rankingData);
+            }
+        });
+    });
+
     // Close detail button
     document.getElementById('close-detail').addEventListener('click', function() {
         detailSection.classList.add('hidden');
@@ -327,6 +625,60 @@
             window._fundingChart.destroy();
             window._fundingChart = null;
         }
+        if (window._histogramChart) {
+            window._histogramChart.destroy();
+            window._histogramChart = null;
+        }
+        histogramContainer.classList.add('hidden');
+    });
+
+    // "Compare Rates" button opens the boxplot section
+    document.getElementById('btn-open-boxplot').addEventListener('click', function() {
+        // Build checkboxes from current rankingData
+        var checkboxHtml = rankingData.map(function(pair) {
+            var shortName = pair.symbol.split('/')[0];
+            var checked = pair.symbol === currentSymbol ? ' checked' : '';
+            return '<label class="flex items-center gap-1 text-xs text-gray-300 cursor-pointer">' +
+                '<input type="checkbox" value="' + pair.symbol.replace(/"/g, '&quot;') + '" class="boxplot-pair-cb"' + checked + '>' +
+                shortName +
+                '</label>';
+        });
+        boxplotCheckboxes.innerHTML = checkboxHtml.join('');
+        boxplotSection.classList.remove('hidden');
+        boxplotSection.scrollIntoView({ behavior: 'smooth' });
+    });
+
+    // "Compare" button fetches distributions and renders box plot
+    document.getElementById('btn-render-boxplot').addEventListener('click', function() {
+        var checked = document.querySelectorAll('.boxplot-pair-cb:checked');
+        var symbols = [];
+        checked.forEach(function(cb) { symbols.push(cb.value); });
+
+        if (symbols.length < 2) {
+            return; // Need at least 2 pairs
+        }
+
+        fetch('/api/pairs/distributions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ symbols: symbols, range: currentRange })
+        })
+        .then(function(resp) { return resp.json(); })
+        .then(function(data) {
+            if (!data.error) {
+                renderBoxPlot(data);
+            }
+        })
+        .catch(function() { /* silently handle */ });
+    });
+
+    // Close boxplot button
+    document.getElementById('close-boxplot').addEventListener('click', function() {
+        if (window._boxplotChart) {
+            window._boxplotChart.destroy();
+            window._boxplotChart = null;
+        }
+        boxplotSection.classList.add('hidden');
     });
 
     // Initial load
