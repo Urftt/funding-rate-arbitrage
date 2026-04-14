@@ -49,7 +49,7 @@ load_dotenv(_REPO_ROOT / "config" / ".env")
 logger = logging.getLogger(__name__)
 
 BYBIT_BASE_URL = "https://api.bybit.com"
-REQUEST_SLEEP_SEC = 0.1  # ~10 req/sec floor (limit is 120/5s); gentle
+REQUEST_SLEEP_SEC = 0.04  # ~25 req/sec (Bybit public limit is 120/5s = 24/s sustained)
 HTTP_TIMEOUT_SEC = 30
 MAX_RETRIES = 5
 RETRY_BACKOFF_SEC = 1.0  # doubled each retry
@@ -514,10 +514,16 @@ def insert_funding_rates(
     tuples: list[tuple] = []
     for r in rows:
         ts_ms = int(r["fundingRateTimestamp"])
+        if ts_ms <= 0:
+            # Bybit occasionally returns bogus records with timestamp 0; skip.
+            logger.warning("skipping funding record with invalid timestamp for %s", ccxt_symbol)
+            continue
         ts = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc)
         # Pass funding_rate as Decimal to preserve precision (stored as NUMERIC).
         rate = Decimal(str(r["fundingRate"]))
         tuples.append((ccxt_symbol, ts, rate, interval_hours, None))
+    if not tuples:
+        return 0
     with conn.cursor() as cur:
         psycopg2.extras.execute_values(
             cur, FUNDING_INSERT_SQL, tuples, page_size=max(len(tuples), 1000)
