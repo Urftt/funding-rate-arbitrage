@@ -1,160 +1,165 @@
-"""Async SQLite database manager for historical data persistence.
+"""Async Postgres connection manager backed by asyncpg.
 
-Uses aiosqlite for non-blocking database operations with WAL mode
-for concurrent read/write performance.
+The bot treats Postgres as a read-mostly analytics substrate. The shared
+``crypto`` database is populated by the standalone sync scripts in
+``scripts/bybit_postgres_sync/`` -- this module NEVER drops, truncates, or
+alters any of the ``bybit_*`` tables. It only creates the bot-owned
+``bot_tracked_pairs`` table on first connect (``CREATE TABLE IF NOT EXISTS``).
 """
 
+from __future__ import annotations
+
 import os
+from pathlib import Path
 from typing import Self
 
-import aiosqlite
+import asyncpg
+from dotenv import load_dotenv
 
 from bot.logging import get_logger
 
+# Load .env once at import time so env-var DSN construction works for CLI
+# tools (backtest, ad-hoc scripts) that don't go through AppSettings.
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+load_dotenv(_REPO_ROOT / ".env")
+
 logger = get_logger(__name__)
 
-SCHEMA_VERSION = 1
 
-_CREATE_TABLES_SQL = """
-CREATE TABLE IF NOT EXISTS schema_version (
-    version INTEGER PRIMARY KEY
-);
-
-CREATE TABLE IF NOT EXISTS funding_rate_history (
-    symbol TEXT NOT NULL,
-    timestamp_ms INTEGER NOT NULL,
-    funding_rate TEXT NOT NULL,
-    interval_hours INTEGER NOT NULL DEFAULT 8,
-    PRIMARY KEY (symbol, timestamp_ms)
-);
-
-CREATE TABLE IF NOT EXISTS ohlcv_candles (
-    symbol TEXT NOT NULL,
-    timestamp_ms INTEGER NOT NULL,
-    open TEXT,
-    high TEXT,
-    low TEXT,
-    close TEXT,
-    volume TEXT,
-    PRIMARY KEY (symbol, timestamp_ms)
-);
-
-CREATE TABLE IF NOT EXISTS fetch_state (
-    symbol TEXT NOT NULL,
-    data_type TEXT NOT NULL,
-    earliest_ms INTEGER,
-    latest_ms INTEGER,
-    last_fetched_at INTEGER,
-    PRIMARY KEY (symbol, data_type)
-);
-
-CREATE TABLE IF NOT EXISTS tracked_pairs (
-    symbol TEXT PRIMARY KEY,
-    added_at INTEGER NOT NULL,
-    last_volume_24h TEXT,
-    is_active INTEGER NOT NULL DEFAULT 1
+# Bot-owned table: distinct from any shared bybit_* tables.
+_CREATE_BOT_TABLES_SQL = """
+CREATE TABLE IF NOT EXISTS bot_tracked_pairs (
+    symbol          TEXT PRIMARY KEY,
+    added_at        TIMESTAMPTZ NOT NULL,
+    last_volume_24h NUMERIC,
+    is_active       BOOLEAN NOT NULL DEFAULT true
 );
 """
 
-_CREATE_INDEXES_SQL = """
-CREATE INDEX IF NOT EXISTS idx_funding_symbol_ts
-    ON funding_rate_history(symbol, timestamp_ms);
 
-CREATE INDEX IF NOT EXISTS idx_ohlcv_symbol_ts
-    ON ohlcv_candles(symbol, timestamp_ms);
-"""
+def _connect_kwargs_from_env() -> dict:
+    """Build asyncpg connect kwargs from POSTGRES_* env vars.
+
+    Using discrete kwargs (not a DSN URL) avoids percent-encoding issues
+    with passwords containing ``%`` / ``@`` / ``#``.
+    """
+    password = os.environ.get("POSTGRES_PASSWORD")
+    if not password:
+        raise RuntimeError(
+            "POSTGRES_PASSWORD env var is required. "
+            "Set it in .env or export it before starting the bot."
+        )
+    return {
+        "host": os.environ.get("POSTGRES_HOST", "192.168.1.53"),
+        "port": int(os.environ.get("POSTGRES_PORT", "5432")),
+        "user": os.environ.get("POSTGRES_USER", "luc"),
+        "database": os.environ.get("POSTGRES_DB", "crypto"),
+        "password": password,
+    }
+
+
+def build_dsn_from_env() -> str:
+    """Back-compat helper -- constructs a DSN URL. Prefer env-kwargs."""
+    from urllib.parse import quote
+    k = _connect_kwargs_from_env()
+    return (
+        f"postgresql://{quote(k['user'])}:{quote(k['password'])}"
+        f"@{k['host']}:{k['port']}/{quote(k['database'])}"
+    )
 
 
 class HistoricalDatabase:
-    """Async SQLite connection manager for historical data.
+    """Async Postgres pool manager for historical data reads (and bot-owned writes).
 
-    Manages database lifecycle including schema creation, WAL mode
-    configuration, and clean resource cleanup.
+    Thin wrapper around ``asyncpg.Pool``. The pool is created on :meth:`connect`
+    and closed on :meth:`close`. The bot creates its own ``bot_tracked_pairs``
+    table if it does not exist, but never touches the shared ``bybit_*`` schema.
 
-    Usage:
-        # Context manager (recommended)
-        async with HistoricalDatabase("/path/to/db") as db:
-            await db.db.execute("SELECT ...")
+    Usage::
 
-        # Manual lifecycle
-        db = HistoricalDatabase("/path/to/db")
-        await db.connect()
+        async with HistoricalDatabase() as database:
+            async with database.pool.acquire() as conn:
+                await conn.fetchval("SELECT 1")
+
+        # Or manual:
+        database = HistoricalDatabase()
+        await database.connect()
         try:
-            await db.db.execute("SELECT ...")
+            ...
         finally:
-            await db.close()
+            await database.close()
     """
 
-    def __init__(self, db_path: str = "data/historical.db") -> None:
-        self._db_path = db_path
-        self._connection: aiosqlite.Connection | None = None
+    def __init__(
+        self,
+        dsn: str | None = None,
+        *,
+        min_size: int = 2,
+        max_size: int = 10,
+    ) -> None:
+        # Prefer discrete connect kwargs (avoids URL-encoding headaches); fall
+        # back to a caller-supplied DSN string if provided.
+        self._dsn = dsn
+        if dsn is None:
+            self._connect_kwargs = _connect_kwargs_from_env()
+        else:
+            self._connect_kwargs = None
+        self._min_size = min_size
+        self._max_size = max_size
+        self._pool: asyncpg.Pool | None = None
 
     @property
-    def db(self) -> aiosqlite.Connection:
-        """Access the raw aiosqlite connection.
+    def pool(self) -> asyncpg.Pool:
+        """Access the underlying asyncpg Pool.
 
-        Raises RuntimeError if not connected.
+        Raises RuntimeError if the pool has not been initialized.
         """
-        if self._connection is None:
+        if self._pool is None:
             raise RuntimeError("Database not connected. Call connect() first.")
-        return self._connection
+        return self._pool
+
+    # Back-compat alias; some older callers used ``.db``.
+    @property
+    def db(self) -> asyncpg.Pool:
+        return self.pool
 
     async def connect(self) -> None:
-        """Open database connection, configure pragmas, and create schema.
+        """Create the asyncpg pool and ensure the bot-owned tables exist."""
+        if self._connect_kwargs is not None:
+            self._pool = await asyncpg.create_pool(
+                min_size=self._min_size,
+                max_size=self._max_size,
+                **self._connect_kwargs,
+            )
+        else:
+            self._pool = await asyncpg.create_pool(
+                dsn=self._dsn,
+                min_size=self._min_size,
+                max_size=self._max_size,
+            )
+        # Create bot-owned tables only (never touch shared bybit_* tables).
+        async with self._pool.acquire() as conn:
+            await conn.execute(_CREATE_BOT_TABLES_SQL)
 
-        Creates the parent directory if it does not exist.
-        Sets WAL journal mode and NORMAL synchronous for performance.
-        """
-        # Ensure parent directory exists
-        db_dir = os.path.dirname(self._db_path)
-        if db_dir:
-            os.makedirs(db_dir, exist_ok=True)
-
-        self._connection = await aiosqlite.connect(self._db_path)
-
-        # Performance pragmas
-        await self._connection.execute("PRAGMA journal_mode=WAL")
-        await self._connection.execute("PRAGMA synchronous=NORMAL")
-
-        await self._create_tables()
-        await self._ensure_schema_version()
-
-        logger.info("historical_db_connected", db_path=self._db_path)
+        # Don't log the DSN (contains password). Log the connection target.
+        logger.info(
+            "postgres_pool_connected",
+            host=os.environ.get("POSTGRES_HOST", "192.168.1.53"),
+            database=os.environ.get("POSTGRES_DB", "crypto"),
+            min_size=self._min_size,
+            max_size=self._max_size,
+        )
 
     async def close(self) -> None:
-        """Close the database connection if open."""
-        if self._connection is not None:
-            await self._connection.close()
-            self._connection = None
-            logger.info("historical_db_closed", db_path=self._db_path)
-
-    async def _create_tables(self) -> None:
-        """Create all tables and indexes if they do not exist."""
-        assert self._connection is not None
-        await self._connection.executescript(_CREATE_TABLES_SQL)
-        await self._connection.executescript(_CREATE_INDEXES_SQL)
-        await self._connection.commit()
-
-    async def _ensure_schema_version(self) -> None:
-        """Insert schema version if not already set."""
-        assert self._connection is not None
-        cursor = await self._connection.execute(
-            "SELECT version FROM schema_version LIMIT 1"
-        )
-        row = await cursor.fetchone()
-        if row is None:
-            await self._connection.execute(
-                "INSERT INTO schema_version (version) VALUES (?)",
-                (SCHEMA_VERSION,),
-            )
-            await self._connection.commit()
-            logger.info("schema_version_set", version=SCHEMA_VERSION)
+        """Close the asyncpg pool."""
+        if self._pool is not None:
+            await self._pool.close()
+            self._pool = None
+            logger.info("postgres_pool_closed")
 
     async def __aenter__(self) -> Self:
-        """Async context manager entry."""
         await self.connect()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:  # type: ignore[no-untyped-def]
-        """Async context manager exit."""
         await self.close()

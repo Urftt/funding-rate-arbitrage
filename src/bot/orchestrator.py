@@ -41,7 +41,6 @@ from bot.risk.emergency import EmergencyController
 from bot.risk.manager import RiskManager
 
 if TYPE_CHECKING:
-    from bot.data.fetcher import HistoricalDataFetcher
     from bot.data.store import HistoricalDataStore
     from bot.position.dynamic_sizer import DynamicSizer
     from bot.signals.engine import SignalEngine
@@ -89,7 +88,6 @@ class Orchestrator:
         risk_manager: RiskManager,
         ranker: OpportunityRanker,
         emergency_controller: EmergencyController | None = None,
-        data_fetcher: HistoricalDataFetcher | None = None,
         data_store: HistoricalDataStore | None = None,
         historical_settings: HistoricalDataSettings | None = None,
         signal_engine: SignalEngine | None = None,
@@ -107,7 +105,6 @@ class Orchestrator:
         self._risk_manager = risk_manager
         self._ranker = ranker
         self._emergency_controller = emergency_controller
-        self._data_fetcher = data_fetcher
         self._data_store = data_store
         self._historical_settings = historical_settings
         self._signal_engine = signal_engine
@@ -181,19 +178,24 @@ class Orchestrator:
                 await asyncio.sleep(10)
 
     async def _ensure_historical_data(self) -> None:
-        """Fetch all missing historical data on startup (v1.1 optional feature).
+        """Record tracked pairs on startup.
 
-        Guards on data_fetcher being set (None = feature disabled).
-        Selects top pairs by volume from current funding rates and delegates
-        to the fetcher's ensure_data_ready() which blocks until complete.
+        The bot no longer fetches historical data -- the standalone sync
+        process populates Postgres independently. This method simply refreshes
+        the bot-owned ``bot_tracked_pairs`` registry with the current top pairs
+        by volume so the dashboard and analytics know which symbols the bot is
+        currently monitoring.
         """
-        if self._data_fetcher is None:
+        if self._data_store is None:
             return
 
         # Wait for funding monitor to complete its first poll (up to 30s)
         all_rates = self._funding_monitor.get_all_funding_rates()
         if not all_rates:
-            logger.info("waiting_for_funding_rates", note="Waiting for first funding poll before historical fetch")
+            logger.info(
+                "waiting_for_funding_rates",
+                note="Waiting for first funding poll before tracked-pair update",
+            )
             for _ in range(60):
                 await asyncio.sleep(0.5)
                 all_rates = self._funding_monitor.get_all_funding_rates()
@@ -201,8 +203,8 @@ class Orchestrator:
                     break
         if not all_rates:
             logger.warning(
-                "no_funding_rates_for_historical_data",
-                note="Funding monitor did not return rates after 30s, skipping initial historical fetch",
+                "no_funding_rates_for_tracked_pairs",
+                note="Funding monitor did not return rates after 30s",
             )
             return
 
@@ -213,30 +215,20 @@ class Orchestrator:
         )
         top_pairs = select_top_pairs(all_rates, count=count)
 
-        # Update tracked pairs in store
-        if self._data_store is not None:
-            for symbol in top_pairs:
-                # Find the volume for this symbol from funding rates
-                fr_match = next(
-                    (fr for fr in all_rates if fr.symbol == symbol), None
-                )
-                volume = fr_match.volume_24h if fr_match else Decimal("0")
+        for symbol in top_pairs:
+            fr_match = next(
+                (fr for fr in all_rates if fr.symbol == symbol), None
+            )
+            volume = fr_match.volume_24h if fr_match else Decimal("0")
+            try:
                 await self._data_store.update_tracked_pair(symbol, volume)
+            except Exception as e:
+                logger.warning(
+                    "tracked_pair_update_failed", symbol=symbol, error=str(e)
+                )
 
-        # Progress callback for dashboard live progress
-        async def _progress_cb(symbol: str, current: int, total: int) -> None:
-            self._data_fetch_progress = {
-                "current_symbol": symbol,
-                "current_index": current,
-                "total": total,
-                "status": "fetching",
-            }
-
-        self._data_fetch_progress = {"status": "starting", "total": len(top_pairs)}
-        await self._data_fetcher.ensure_data_ready(top_pairs, progress_callback=_progress_cb)
         self._data_fetch_progress = {"status": "complete"}
-
-        logger.info("historical_data_ready", pairs=len(top_pairs))
+        logger.info("tracked_pairs_updated", pairs=len(top_pairs))
 
     async def _autonomous_cycle(self) -> None:
         """One iteration of the autonomous trading loop.
@@ -253,24 +245,9 @@ class Orchestrator:
         # 0. APPLY: Runtime config overrides from dashboard
         self._apply_runtime_config()
 
-        # 0.5. UPDATE HISTORICAL DATA (if enabled)
-        if self._data_fetcher is not None:
-            try:
-                all_rates_for_data = self._funding_monitor.get_all_funding_rates()
-                if all_rates_for_data:
-                    count = (
-                        self._historical_settings.top_pairs_count
-                        if self._historical_settings
-                        else 20
-                    )
-                    top_pairs = select_top_pairs(all_rates_for_data, count=count)
-                    await self._data_fetcher.incremental_update(top_pairs)
-            except Exception as e:
-                logger.warning(
-                    "historical_data_update_failed",
-                    error=str(e),
-                    exc_info=True,
-                )
+        # 0.5. (Historical data is kept fresh by the standalone Postgres sync
+        # process; the bot no longer fetches. Live funding rates come from
+        # FundingMonitor's REST polling which feeds the scan loop below.)
 
         # 1. SCAN: Get all funding rates from monitor cache
         all_rates = self._funding_monitor.get_all_funding_rates()

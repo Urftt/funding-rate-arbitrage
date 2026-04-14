@@ -12,6 +12,9 @@ CLI backtest commands (independent of bot startup):
   python -m bot.main --backtest --compare --symbol BTC/USDT:USDT --start 2025-01-01 --end 2025-06-01
   python -m bot.main --backtest --sweep --symbol BTC/USDT:USDT --start 2025-01-01 --end 2025-06-01
 
+Backtests read historical data from Postgres (env: POSTGRES_HOST, POSTGRES_DB,
+POSTGRES_USER, POSTGRES_PASSWORD).
+
 Component wiring order (in _build_components):
 1. AppSettings (configuration)
 2. Logging setup
@@ -45,7 +48,6 @@ from fastapi import FastAPI
 
 from bot.config import AppSettings
 from bot.data.database import HistoricalDatabase
-from bot.data.fetcher import HistoricalDataFetcher
 from bot.data.store import HistoricalDataStore
 from bot.exchange.bybit_client import BybitClient
 from bot.logging import get_logger, setup_logging
@@ -146,19 +148,15 @@ async def _build_components(settings: AppSettings) -> dict[str, Any]:
         exchange_client=exchange_client if settings.trading.mode == "live" else None,
     )
 
-    # 14. Create orchestrator (historical data components wired below)
-    # 14.5. Create historical data components (optional v1.1 feature)
-    historical_db = None
-    data_store = None
-    data_fetcher = None
-    if settings.historical.enabled:
-        historical_db = HistoricalDatabase(settings.historical.db_path)
-        data_store = HistoricalDataStore(historical_db)
-        data_fetcher = HistoricalDataFetcher(
-            exchange=exchange_client,
-            store=data_store,
-            settings=settings.historical,
-        )
+    # 14. Create orchestrator
+    # 14.5. Create historical data components (Postgres-backed, always enabled).
+    # The standalone sync scripts at scripts/bybit_postgres_sync/ populate the
+    # shared crypto DB; the bot is a pure consumer of that data.
+    historical_db = HistoricalDatabase(
+        min_size=settings.postgres.pool_min_size,
+        max_size=settings.postgres.pool_max_size,
+    )
+    data_store = HistoricalDataStore(historical_db)
 
     # 14.6. Create signal engine (optional v1.1 composite signals)
     signal_engine = None
@@ -191,9 +189,8 @@ async def _build_components(settings: AppSettings) -> dict[str, Any]:
         risk_manager=risk_manager,
         ranker=ranker,
         emergency_controller=None,  # Set after orchestrator created (circular ref)
-        data_fetcher=data_fetcher,
         data_store=data_store,
-        historical_settings=settings.historical if settings.historical.enabled else None,
+        historical_settings=settings.historical,
         signal_engine=signal_engine,
         signal_settings=settings.signal if signal_engine else None,
         dynamic_sizer=dynamic_sizer,
@@ -223,7 +220,6 @@ async def _build_components(settings: AppSettings) -> dict[str, Any]:
         "emergency_controller": emergency_controller,
         "historical_db": historical_db,
         "data_store": data_store,
-        "data_fetcher": data_fetcher,
         "signal_engine": signal_engine,
     }
 
@@ -327,9 +323,8 @@ async def lifespan(app: FastAPI):
     # Connect to exchange
     await components["exchange_client"].connect()
 
-    # Connect historical database if enabled
-    if components.get("historical_db"):
-        await components["historical_db"].connect()
+    # Connect historical database (Postgres; required for bot operation)
+    await components["historical_db"].connect()
 
     # Start orchestrator as background task
     bot_task = asyncio.create_task(components["orchestrator"].start())
@@ -358,9 +353,8 @@ async def lifespan(app: FastAPI):
     except asyncio.CancelledError:
         pass
 
-    # Close historical database if connected
-    if components.get("historical_db"):
-        await components["historical_db"].close()
+    # Close historical database
+    await components["historical_db"].close()
 
     # Disconnect from exchange
     await components["exchange_client"].close()
@@ -510,12 +504,6 @@ def _build_backtest_parser() -> argparse.ArgumentParser:
         type=str,
         default=None,
         help="Override exit_threshold (e.g., 0.3)",
-    )
-    parser.add_argument(
-        "--db-path",
-        type=str,
-        default="data/historical.db",
-        help="Path to historical database (default: data/historical.db)",
     )
     parser.add_argument(
         "--initial-capital",
@@ -712,7 +700,7 @@ async def _run_backtest_cli() -> None:
             **config_kwargs,
         )
         simple_result, composite_result = await run_comparison(
-            config_simple, config_composite, db_path=args.db_path
+            config_simple, config_composite
         )
         print(_format_comparison(
             simple_result, composite_result, args.symbol, args.start, args.end
@@ -729,7 +717,7 @@ async def _run_backtest_cli() -> None:
             **config_kwargs,
         )
         param_grid = ParameterSweep.generate_default_grid(args.strategy)
-        sweep = ParameterSweep(db_path=args.db_path)
+        sweep = ParameterSweep()
 
         total_combos = len(list(itertools_product(*param_grid.values())))
 
@@ -756,7 +744,7 @@ async def _run_backtest_cli() -> None:
             initial_capital=initial_capital,
             **config_kwargs,
         )
-        result = await run_backtest(config, db_path=args.db_path)
+        result = await run_backtest(config)
         print(
             _format_single_result(
                 result, args.symbol, args.start, args.end, args.strategy

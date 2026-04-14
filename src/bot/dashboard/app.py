@@ -74,7 +74,6 @@ def create_dashboard_app(lifespan: Any = None) -> FastAPI:
 
     # Backtest task storage for background execution (BKTS-04)
     app.state.backtest_tasks: dict = {}
-    app.state.historical_db_path = "data/historical.db"
 
     # Pair analyzer for pair explorer (Phase 8) -- wired by main.py lifespan
     app.state.pair_analyzer = None

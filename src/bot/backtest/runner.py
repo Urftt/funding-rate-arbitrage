@@ -6,6 +6,10 @@ convenient CLI usage with date strings.
 
 All functions handle empty data gracefully by returning BacktestResult with
 zero metrics and a warning log message.
+
+The historical data now lives in Postgres (shared ``crypto`` DB). Callers
+may pass a pre-opened :class:`HistoricalDatabase` to reuse a single pool; if
+none is provided, one is constructed from POSTGRES_* env vars.
 """
 
 import time
@@ -13,7 +17,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from bot.backtest.engine import BacktestEngine
-from bot.backtest.models import BacktestConfig, BacktestMetrics, BacktestResult, MultiPairResult
+from bot.backtest.models import BacktestConfig, BacktestResult, MultiPairResult
 from bot.config import BacktestSettings, FeeSettings
 from bot.data.database import HistoricalDatabase
 from bot.data.store import HistoricalDataStore
@@ -24,23 +28,14 @@ logger = get_logger(__name__)
 
 async def run_backtest(
     config: BacktestConfig,
-    db_path: str = "data/historical.db",
+    database: HistoricalDatabase | None = None,
     fee_settings: FeeSettings | None = None,
     backtest_settings: BacktestSettings | None = None,
 ) -> BacktestResult:
     """Run a single backtest with the given configuration.
 
-    Opens the historical database, creates all components, runs the engine,
-    and returns the result. Handles empty data gracefully.
-
-    Args:
-        config: Backtest configuration (symbol, dates, strategy, thresholds).
-        db_path: Path to the SQLite historical database.
-        fee_settings: Fee rates. Defaults to standard Bybit Non-VIP rates.
-        backtest_settings: Backtest-specific settings. Defaults to standard values.
-
-    Returns:
-        BacktestResult with equity curve and metrics.
+    If ``database`` is provided, reuses its asyncpg pool. Otherwise opens a
+    short-lived :class:`HistoricalDatabase` for the duration of the run.
     """
     if fee_settings is None:
         fee_settings = FeeSettings()
@@ -55,18 +50,23 @@ async def run_backtest(
         strategy_mode=config.strategy_mode,
         start_ms=config.start_ms,
         end_ms=config.end_ms,
-        db_path=db_path,
     )
 
-    async with HistoricalDatabase(db_path) as database:
-        data_store = HistoricalDataStore(database)
+    async def _run(db: HistoricalDatabase) -> BacktestResult:
+        data_store = HistoricalDataStore(db)
         engine = BacktestEngine(
             config=config,
             data_store=data_store,
             fee_settings=fee_settings,
             backtest_settings=backtest_settings,
         )
-        result = await engine.run()
+        return await engine.run()
+
+    if database is not None:
+        result = await _run(database)
+    else:
+        async with HistoricalDatabase() as db:
+            result = await _run(db)
 
     elapsed = time.monotonic() - start_time
 
@@ -86,54 +86,38 @@ async def run_backtest(
 async def run_comparison(
     config_simple: BacktestConfig,
     config_composite: BacktestConfig,
-    db_path: str = "data/historical.db",
+    database: HistoricalDatabase | None = None,
     fee_settings: FeeSettings | None = None,
     backtest_settings: BacktestSettings | None = None,
 ) -> tuple[BacktestResult, BacktestResult]:
-    """Run v1.0 (simple) and v1.1 (composite) backtests side by side (BKTS-05).
-
-    Validates that configs have the correct strategy modes and warns if
-    symbol/date ranges differ. Runs both sequentially using the same database.
-
-    Args:
-        config_simple: Config with strategy_mode="simple".
-        config_composite: Config with strategy_mode="composite".
-        db_path: Path to the SQLite historical database.
-        fee_settings: Fee rates. Defaults to standard Bybit Non-VIP rates.
-        backtest_settings: Backtest-specific settings. Defaults to standard values.
-
-    Returns:
-        Tuple of (simple_result, composite_result).
-    """
+    """Run simple vs composite backtests side by side, sharing a DB pool."""
     if fee_settings is None:
         fee_settings = FeeSettings()
     if backtest_settings is None:
         backtest_settings = BacktestSettings()
 
-    # Validate strategy modes
     if config_simple.strategy_mode != "simple":
         logger.warning(
             "comparison_config_mismatch",
             expected="simple",
             got=config_simple.strategy_mode,
-            note="config_simple should have strategy_mode='simple'",
         )
     if config_composite.strategy_mode != "composite":
         logger.warning(
             "comparison_config_mismatch",
             expected="composite",
             got=config_composite.strategy_mode,
-            note="config_composite should have strategy_mode='composite'",
         )
-
-    # Warn if symbol/date ranges differ
     if config_simple.symbol != config_composite.symbol:
         logger.warning(
             "comparison_symbol_mismatch",
             simple_symbol=config_simple.symbol,
             composite_symbol=config_composite.symbol,
         )
-    if config_simple.start_ms != config_composite.start_ms or config_simple.end_ms != config_composite.end_ms:
+    if (
+        config_simple.start_ms != config_composite.start_ms
+        or config_simple.end_ms != config_composite.end_ms
+    ):
         logger.warning(
             "comparison_date_range_mismatch",
             simple_range=f"{config_simple.start_ms}-{config_simple.end_ms}",
@@ -149,10 +133,8 @@ async def run_comparison(
 
     start_time = time.monotonic()
 
-    async with HistoricalDatabase(db_path) as database:
-        data_store = HistoricalDataStore(database)
-
-        # Run simple backtest
+    async def _run_both(db: HistoricalDatabase) -> tuple[BacktestResult, BacktestResult]:
+        data_store = HistoricalDataStore(db)
         simple_engine = BacktestEngine(
             config=config_simple,
             data_store=data_store,
@@ -161,7 +143,6 @@ async def run_comparison(
         )
         simple_result = await simple_engine.run()
 
-        # Run composite backtest
         composite_engine = BacktestEngine(
             config=config_composite,
             data_store=data_store,
@@ -169,6 +150,13 @@ async def run_comparison(
             backtest_settings=backtest_settings,
         )
         composite_result = await composite_engine.run()
+        return simple_result, composite_result
+
+    if database is not None:
+        simple_result, composite_result = await _run_both(database)
+    else:
+        async with HistoricalDatabase() as db:
+            simple_result, composite_result = await _run_both(db)
 
     elapsed = time.monotonic() - start_time
 
@@ -187,26 +175,11 @@ async def run_comparison(
 async def run_multi_pair(
     symbols: list[str],
     base_config: BacktestConfig,
-    db_path: str = "data/historical.db",
+    database: HistoricalDatabase | None = None,
     fee_settings: FeeSettings | None = None,
     backtest_settings: BacktestSettings | None = None,
 ) -> MultiPairResult:
-    """Run the same backtest config across multiple pairs sequentially.
-
-    Each pair is run independently. Failures on individual pairs are caught
-    and recorded as errors without aborting the remaining pairs. Results
-    are compacted (equity curve and trades discarded) for memory efficiency.
-
-    Args:
-        symbols: List of trading pair symbols to test.
-        base_config: Base backtest configuration (symbol field will be overridden).
-        db_path: Path to the SQLite historical database.
-        fee_settings: Fee rates. Defaults to standard Bybit Non-VIP rates.
-        backtest_settings: Backtest-specific settings.
-
-    Returns:
-        MultiPairResult with per-pair results and aggregate counts.
-    """
+    """Run the same backtest config across multiple pairs sequentially."""
     if fee_settings is None:
         fee_settings = FeeSettings()
     if backtest_settings is None:
@@ -216,22 +189,28 @@ async def run_multi_pair(
     start_time = time.monotonic()
     results = []
 
-    for symbol in symbols:
-        try:
-            config = base_config.with_overrides(symbol=symbol)
-            result = await run_backtest(config, db_path, fee_settings, backtest_settings)
-            # Memory management: only keep metrics, discard equity curve and trades
-            compact = BacktestResult(
-                config=result.config,
-                equity_curve=[],
-                trades=[],
-                trade_stats=result.trade_stats,
-                metrics=result.metrics,
-            )
-            results.append((symbol, compact, None))
-        except Exception as e:
-            logger.warning("multi_pair_single_error", symbol=symbol, error=str(e))
-            results.append((symbol, None, str(e)))
+    async def _run_all(db: HistoricalDatabase) -> None:
+        for symbol in symbols:
+            try:
+                config = base_config.with_overrides(symbol=symbol)
+                result = await run_backtest(config, db, fee_settings, backtest_settings)
+                compact = BacktestResult(
+                    config=result.config,
+                    equity_curve=[],
+                    trades=[],
+                    trade_stats=result.trade_stats,
+                    metrics=result.metrics,
+                )
+                results.append((symbol, compact, None))
+            except Exception as e:
+                logger.warning("multi_pair_single_error", symbol=symbol, error=str(e))
+                results.append((symbol, None, str(e)))
+
+    if database is not None:
+        await _run_all(database)
+    else:
+        async with HistoricalDatabase() as db:
+            await _run_all(db)
 
     elapsed = time.monotonic() - start_time
     logger.info("run_multi_pair_complete", total=len(symbols), elapsed_seconds=round(elapsed, 2))
@@ -244,30 +223,9 @@ async def run_backtest_cli(
     end_date: str,
     strategy_mode: str = "simple",
     initial_capital: Decimal = Decimal("10000"),
-    db_path: str = "data/historical.db",
     **kwargs: object,
 ) -> BacktestResult:
-    """Convenience entry point for CLI usage with date strings.
-
-    Converts human-readable date strings to millisecond timestamps,
-    creates a BacktestConfig, runs the backtest, and logs a summary.
-
-    Args:
-        symbol: Trading pair symbol (e.g., "BTC/USDT:USDT").
-        start_date: Start date as "YYYY-MM-DD" string.
-        end_date: End date as "YYYY-MM-DD" string.
-        strategy_mode: "simple" or "composite".
-        initial_capital: Starting capital in USDT.
-        db_path: Path to the SQLite historical database.
-        **kwargs: Additional BacktestConfig fields to override.
-
-    Returns:
-        BacktestResult with equity curve and metrics.
-
-    Raises:
-        ValueError: If date strings are invalid or date range is empty.
-    """
-    # Convert date strings to millisecond timestamps
+    """Convenience entry point for CLI usage with date strings."""
     try:
         start_dt = datetime.strptime(start_date, "%Y-%m-%d").replace(
             tzinfo=timezone.utc
@@ -288,7 +246,6 @@ async def run_backtest_cli(
             f"End date ({end_date}) must be after start date ({start_date})"
         )
 
-    # Validate symbol
     if "/" not in symbol or ":" not in symbol:
         logger.warning(
             "unusual_symbol_format",
@@ -296,7 +253,6 @@ async def run_backtest_cli(
             note="Expected format like BTC/USDT:USDT",
         )
 
-    # Build config
     config_kwargs = {
         "symbol": symbol,
         "start_ms": start_ms,
@@ -304,17 +260,14 @@ async def run_backtest_cli(
         "strategy_mode": strategy_mode,
         "initial_capital": initial_capital,
     }
-    # Apply any additional overrides
     for key, value in kwargs.items():
         if hasattr(BacktestConfig, key):
             config_kwargs[key] = value
 
     config = BacktestConfig(**config_kwargs)
 
-    # Run backtest
-    result = await run_backtest(config, db_path=db_path)
+    result = await run_backtest(config)
 
-    # Log summary to console
     m = result.metrics
     logger.info(
         "backtest_cli_summary",

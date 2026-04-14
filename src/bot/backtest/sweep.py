@@ -21,6 +21,7 @@ from itertools import product
 from bot.backtest.models import BacktestConfig, BacktestResult, SweepResult
 from bot.backtest.runner import run_backtest
 from bot.config import BacktestSettings, FeeSettings
+from bot.data.database import HistoricalDatabase
 from bot.logging import get_logger
 
 logger = get_logger(__name__)
@@ -34,18 +35,18 @@ class ParameterSweep:
     retaining the full equity curve for the best result.
 
     Args:
-        db_path: Path to the SQLite historical database.
+        database: Optional pre-opened HistoricalDatabase to share a pool.
         fee_settings: Fee rates. Defaults to standard Bybit Non-VIP rates.
         backtest_settings: Backtest-specific settings (slippage, etc.).
     """
 
     def __init__(
         self,
-        db_path: str = "data/historical.db",
+        database: HistoricalDatabase | None = None,
         fee_settings: FeeSettings | None = None,
         backtest_settings: BacktestSettings | None = None,
     ) -> None:
-        self._db_path = db_path
+        self._database = database
         self._fee_settings = fee_settings
         self._backtest_settings = backtest_settings
 
@@ -100,73 +101,84 @@ class ParameterSweep:
         best_pnl = Decimal("-999999999")
         best_index = -1
 
-        for idx, combo in enumerate(combinations):
-            # Build params dict
-            params = dict(zip(keys, combo))
+        # Share a single asyncpg pool across all combinations to avoid
+        # thrashing connections. If caller supplied a database, reuse it.
+        owns_db = self._database is None
+        db = self._database if self._database is not None else HistoricalDatabase()
+        if owns_db:
+            await db.connect()
 
-            # Convert string values to Decimal where needed
-            converted_params: dict[str, object] = {}
-            for k, v in params.items():
-                base_field_value = getattr(base_config, k)
-                if isinstance(base_field_value, Decimal) and not isinstance(v, Decimal):
-                    converted_params[k] = Decimal(str(v))
+        try:
+            for idx, combo in enumerate(combinations):
+                # Build params dict
+                params = dict(zip(keys, combo))
+
+                # Convert string values to Decimal where needed
+                converted_params: dict[str, object] = {}
+                for k, v in params.items():
+                    base_field_value = getattr(base_config, k)
+                    if isinstance(base_field_value, Decimal) and not isinstance(v, Decimal):
+                        converted_params[k] = Decimal(str(v))
+                    else:
+                        converted_params[k] = v
+
+                # Create override config
+                config = base_config.with_overrides(**converted_params)
+
+                # Run backtest
+                result = await run_backtest(
+                    config,
+                    db,
+                    self._fee_settings,
+                    self._backtest_settings,
+                )
+
+                # Track best result
+                if result.metrics.net_pnl > best_pnl:
+                    # Discard equity curve and trades from previous best
+                    if best_index >= 0:
+                        prev = results[best_index][1]
+                        results[best_index] = (
+                            results[best_index][0],
+                            BacktestResult(
+                                config=prev.config,
+                                equity_curve=[],
+                                trades=[],
+                                trade_stats=prev.trade_stats,
+                                metrics=prev.metrics,
+                            ),
+                        )
+                    best_pnl = result.metrics.net_pnl
+                    best_index = len(results)
+                    # Keep full equity curve and trades for new best
+                    results.append((params, result))
                 else:
-                    converted_params[k] = v
-
-            # Create override config
-            config = base_config.with_overrides(**converted_params)
-
-            # Run backtest
-            result = await run_backtest(
-                config,
-                self._db_path,
-                self._fee_settings,
-                self._backtest_settings,
-            )
-
-            # Track best result
-            if result.metrics.net_pnl > best_pnl:
-                # Discard equity curve and trades from previous best
-                if best_index >= 0:
-                    prev = results[best_index][1]
-                    results[best_index] = (
-                        results[best_index][0],
+                    # Discard equity curve and trades to save memory
+                    results.append((
+                        params,
                         BacktestResult(
-                            config=prev.config,
+                            config=result.config,
                             equity_curve=[],
                             trades=[],
-                            trade_stats=prev.trade_stats,
-                            metrics=prev.metrics,
+                            trade_stats=result.trade_stats,
+                            metrics=result.metrics,
                         ),
-                    )
-                best_pnl = result.metrics.net_pnl
-                best_index = len(results)
-                # Keep full equity curve and trades for new best
-                results.append((params, result))
-            else:
-                # Discard equity curve and trades to save memory
-                results.append((
-                    params,
-                    BacktestResult(
-                        config=result.config,
-                        equity_curve=[],
-                        trades=[],
-                        trade_stats=result.trade_stats,
-                        metrics=result.metrics,
-                    ),
-                ))
+                    ))
 
-            # Call progress callback if provided
-            if progress_callback is not None:
-                progress_callback(idx + 1, total, params, result)
+                # Call progress callback if provided
+                if progress_callback is not None:
+                    progress_callback(idx + 1, total, params, result)
 
-            logger.debug(
-                "sweep_run_complete",
-                index=idx + 1,
-                total=total,
-                params={k: str(v) for k, v in params.items()},
-                net_pnl=str(result.metrics.net_pnl),
-            )
+                logger.debug(
+                    "sweep_run_complete",
+                    index=idx + 1,
+                    total=total,
+                    params={k: str(v) for k, v in params.items()},
+                    net_pnl=str(result.metrics.net_pnl),
+                )
+        finally:
+            if owns_db:
+                await db.close()
 
         logger.info(
             "sweep_complete",

@@ -70,24 +70,40 @@ class DashboardSettings(BaseSettings):
     update_interval: int = 5  # seconds between WebSocket pushes
 
 
-class HistoricalDataSettings(BaseSettings):
-    """Historical data collection configuration.
+class PostgresSettings(BaseSettings):
+    """Postgres connection settings for the shared ``crypto`` analytics DB.
 
-    Controls data fetching behavior, storage location, and pair selection.
-    All fields configurable via HISTORICAL_ environment variable prefix.
+    Required: POSTGRES_PASSWORD. Other fields default to the user's Unraid
+    host. The pool is sized for a single-process bot; bump ``pool_max_size``
+    if multiple workers ever share the same process.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="POSTGRES_")
+
+    host: str = "192.168.1.53"
+    port: int = 5432
+    database: str = "crypto"
+    user: str = "luc"
+    password: SecretStr = SecretStr("")
+    pool_min_size: int = 2
+    pool_max_size: int = 10
+
+
+class HistoricalDataSettings(BaseSettings):
+    """Historical data consumer configuration.
+
+    The bot no longer fetches historical data -- that is the job of the
+    standalone sync scripts at ``scripts/bybit_postgres_sync/``. The settings
+    below tune which pairs the bot pays attention to (pair_selector) and
+    how much history downstream consumers pull for signal analysis.
     """
 
     model_config = SettingsConfigDict(env_prefix="HISTORICAL_")
 
-    enabled: bool = True
-    db_path: str = "data/historical.db"
     lookback_days: int = 365
     ohlcv_interval: str = "1h"
     top_pairs_count: int = 20
     pair_reeval_interval_hours: int = 168  # weekly
-    max_retries: int = 5
-    retry_base_delay: float = 1.0
-    fetch_batch_delay: float = 0.1
 
 
 class SignalSettings(BaseSettings):
@@ -185,6 +201,10 @@ class AppSettings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         env_nested_delimiter="__",
+        # Allow .env to contain flat prefixed vars (LOG_FORMAT, BYBIT_TESTNET,
+        # POSTGRES_HOST, etc.) that are consumed by nested BaseSettings with
+        # env_prefix. Without this, Pydantic v2.12 rejects them at root.
+        extra="ignore",
     )
 
     log_level: str = "INFO"
@@ -194,6 +214,7 @@ class AppSettings(BaseSettings):
     risk: RiskSettings = RiskSettings()
     dashboard: DashboardSettings = DashboardSettings()
     historical: HistoricalDataSettings = HistoricalDataSettings()
+    postgres: PostgresSettings = PostgresSettings()
     signal: SignalSettings = SignalSettings()
     backtest: BacktestSettings = BacktestSettings()
     sizing: DynamicSizingSettings = DynamicSizingSettings()

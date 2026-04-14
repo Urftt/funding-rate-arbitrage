@@ -420,18 +420,16 @@ def _parse_dates(start_date: str, end_date: str) -> tuple[int, int]:
 
 
 async def _run_backtest_task(
-    task_id: str, app_state: Any, config: BacktestConfig, db_path: str
+    task_id: str, app_state: Any, config: BacktestConfig
 ) -> None:
     """Run a single backtest as a background task and store the result.
 
-    Args:
-        task_id: Unique identifier for this task.
-        app_state: FastAPI app.state object for storing results.
-        config: Backtest configuration.
-        db_path: Path to the historical database.
+    The backtest opens its own short-lived Postgres pool via env vars. Tasks
+    run concurrently via asyncio.create_task; in high-load scenarios consider
+    sharing a long-lived HistoricalDatabase pool instead.
     """
     try:
-        result = await run_backtest(config, db_path)
+        result = await run_backtest(config)
         app_state.backtest_tasks[task_id]["result"] = result.to_dict()
         app_state.backtest_tasks[task_id]["status"] = "complete"
     except Exception as e:
@@ -445,20 +443,11 @@ async def _run_comparison_task(
     app_state: Any,
     config_simple: BacktestConfig,
     config_composite: BacktestConfig,
-    db_path: str,
 ) -> None:
-    """Run a v1.0 vs v1.1 comparison as a background task.
-
-    Args:
-        task_id: Unique identifier for this task.
-        app_state: FastAPI app.state object for storing results.
-        config_simple: Config for simple (v1.0) strategy.
-        config_composite: Config for composite (v1.1) strategy.
-        db_path: Path to the historical database.
-    """
+    """Run a v1.0 vs v1.1 comparison as a background task."""
     try:
         simple_result, composite_result = await run_comparison(
-            config_simple, config_composite, db_path
+            config_simple, config_composite
         )
         app_state.backtest_tasks[task_id]["result"] = {
             "simple": simple_result.to_dict(),
@@ -476,19 +465,10 @@ async def _run_sweep_task(
     app_state: Any,
     config: BacktestConfig,
     param_grid: dict,
-    db_path: str,
 ) -> None:
-    """Run a parameter sweep as a background task.
-
-    Args:
-        task_id: Unique identifier for this task.
-        app_state: FastAPI app.state object for storing results.
-        config: Base backtest configuration.
-        param_grid: Parameter grid for the sweep.
-        db_path: Path to the historical database.
-    """
+    """Run a parameter sweep as a background task."""
     try:
-        sweep = ParameterSweep(db_path=db_path)
+        sweep = ParameterSweep()
         result = await sweep.run(config, param_grid)
         app_state.backtest_tasks[task_id]["result"] = result.to_dict()
         app_state.backtest_tasks[task_id]["status"] = "complete"
@@ -503,19 +483,10 @@ async def _run_multi_pair_task(
     app_state: Any,
     symbols: list[str],
     config: BacktestConfig,
-    db_path: str,
 ) -> None:
-    """Run a multi-pair backtest as a background task.
-
-    Args:
-        task_id: Unique identifier for this task.
-        app_state: FastAPI app.state object for storing results.
-        symbols: List of trading pair symbols.
-        config: Base backtest configuration (symbol overridden per pair).
-        db_path: Path to the historical database.
-    """
+    """Run a multi-pair backtest as a background task."""
     try:
-        result = await run_multi_pair(symbols, config, db_path)
+        result = await run_multi_pair(symbols, config)
         app_state.backtest_tasks[task_id]["result"] = result.to_dict()
         app_state.backtest_tasks[task_id]["status"] = "complete"
     except Exception as e:
@@ -600,7 +571,6 @@ async def run_backtest_endpoint(request: Request) -> JSONResponse:
         return JSONResponse(content={"error": str(e)}, status_code=400)
 
     config = _build_config_from_body(body, start_ms, end_ms)
-    db_path = getattr(request.app.state, "historical_db_path", "data/historical.db")
 
     task_id = str(uuid.uuid4())[:8]
     request.app.state.backtest_tasks[task_id] = {
@@ -610,7 +580,7 @@ async def run_backtest_endpoint(request: Request) -> JSONResponse:
         "result": None,
     }
     task = asyncio.create_task(
-        _run_backtest_task(task_id, request.app.state, config, db_path)
+        _run_backtest_task(task_id, request.app.state, config)
     )
     request.app.state.backtest_tasks[task_id]["task"] = task
 
@@ -652,7 +622,6 @@ async def run_sweep_endpoint(request: Request) -> JSONResponse:
         return JSONResponse(content={"error": str(e)}, status_code=400)
 
     config = _build_config_from_body(body, start_ms, end_ms)
-    db_path = getattr(request.app.state, "historical_db_path", "data/historical.db")
 
     # Use provided param_grid or generate default
     param_grid = body.get("param_grid")
@@ -668,7 +637,7 @@ async def run_sweep_endpoint(request: Request) -> JSONResponse:
         "result": None,
     }
     task = asyncio.create_task(
-        _run_sweep_task(task_id, request.app.state, config, param_grid, db_path)
+        _run_sweep_task(task_id, request.app.state, config, param_grid)
     )
     request.app.state.backtest_tasks[task_id]["task"] = task
 
@@ -708,7 +677,6 @@ async def run_compare_endpoint(request: Request) -> JSONResponse:
     config_composite = _build_config_from_body(
         {**body, "strategy_mode": "composite"}, start_ms, end_ms
     )
-    db_path = getattr(request.app.state, "historical_db_path", "data/historical.db")
 
     task_id = str(uuid.uuid4())[:8]
     request.app.state.backtest_tasks[task_id] = {
@@ -719,7 +687,7 @@ async def run_compare_endpoint(request: Request) -> JSONResponse:
     }
     task = asyncio.create_task(
         _run_comparison_task(
-            task_id, request.app.state, config_simple, config_composite, db_path
+            task_id, request.app.state, config_simple, config_composite
         )
     )
     request.app.state.backtest_tasks[task_id]["task"] = task
@@ -765,7 +733,6 @@ async def run_multi_pair_endpoint(request: Request) -> JSONResponse:
     # Build base config using first symbol as placeholder
     body_with_symbol = {**body, "symbol": symbols[0]}
     config = _build_config_from_body(body_with_symbol, start_ms, end_ms)
-    db_path = getattr(request.app.state, "historical_db_path", "data/historical.db")
 
     task_id = str(uuid.uuid4())[:8]
     request.app.state.backtest_tasks[task_id] = {
@@ -775,7 +742,7 @@ async def run_multi_pair_endpoint(request: Request) -> JSONResponse:
         "result": None,
     }
     task = asyncio.create_task(
-        _run_multi_pair_task(task_id, request.app.state, symbols, config, db_path)
+        _run_multi_pair_task(task_id, request.app.state, symbols, config)
     )
     request.app.state.backtest_tasks[task_id]["task"] = task
 
