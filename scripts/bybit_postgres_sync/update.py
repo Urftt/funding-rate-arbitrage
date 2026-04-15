@@ -32,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import (  # noqa: E402
     connect_db,
     ensure_schema,
+    fetch_and_insert_predicted_funding,
     fetch_funding_page,
     fetch_kline_page,
     fetch_linear_perps,
@@ -163,6 +164,15 @@ def main() -> int:
         spots = fetch_spot_instruments()
         spot_lookup = {i["ccxt_symbol"]: i["bybit_symbol"] for i in spots}
 
+        # Capture predicted funding BEFORE the per-symbol loop so the snapshot
+        # reflects the forecast at start-of-run. instruments were upserted just
+        # above, so any newly-launched perps are already known and eligible.
+        try:
+            predicted_inserted = fetch_and_insert_predicted_funding(conn)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("predicted funding capture failed: %s -- continuing", exc)
+            predicted_inserted = 0
+
         db_perps = load_perp_instruments(conn)
         if args.symbol:
             db_perps = [p for p in db_perps if p["ccxt_symbol"] == args.symbol]
@@ -214,10 +224,12 @@ def main() -> int:
                         )
 
         logger.info(
-            "DONE. funding_inserted=%d perp_klines_inserted=%d spot_klines_inserted=%d",
+            "DONE. funding_inserted=%d perp_klines_inserted=%d "
+            "spot_klines_inserted=%d predicted_funding_inserted=%d",
             total_funding,
             total_perp_k,
             total_spot_k,
+            predicted_inserted,
         )
     finally:
         conn.close()

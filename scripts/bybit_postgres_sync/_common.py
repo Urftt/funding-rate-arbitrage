@@ -169,6 +169,20 @@ CREATE TABLE IF NOT EXISTS bybit_kline_sync_state (
     last_synced_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (symbol, market_type, interval)
 );
+
+CREATE TABLE IF NOT EXISTS bybit_predicted_funding (
+    symbol             TEXT NOT NULL,
+    observed_at        TIMESTAMPTZ NOT NULL,
+    predicted_rate     NUMERIC(20,12) NOT NULL,
+    next_funding_time  TIMESTAMPTZ NOT NULL,
+    mark_price         NUMERIC(24,12),
+    index_price        NUMERIC(24,12),
+    PRIMARY KEY (symbol, observed_at)
+);
+CREATE INDEX IF NOT EXISTS idx_bybit_predicted_funding_time
+    ON bybit_predicted_funding (observed_at);
+CREATE INDEX IF NOT EXISTS idx_bybit_predicted_funding_next
+    ON bybit_predicted_funding (symbol, next_funding_time);
 """
 
 
@@ -530,6 +544,141 @@ def insert_funding_rates(
         )
         inserted = cur.rowcount
     conn.commit()
+    return inserted
+
+
+# ---------------------------------------------------------------------------
+# Predicted funding (live forecast)
+# ---------------------------------------------------------------------------
+
+
+PREDICTED_FUNDING_INSERT_SQL = (
+    "INSERT INTO bybit_predicted_funding "
+    "(symbol, observed_at, predicted_rate, next_funding_time, mark_price, index_price) "
+    "VALUES %s ON CONFLICT (symbol, observed_at) DO NOTHING"
+)
+
+
+def fetch_and_insert_predicted_funding(
+    conn: psycopg2.extensions.connection,
+) -> int:
+    """Capture the current predicted funding rate for all linear perps.
+
+    Calls Bybit's ``/v5/market/tickers?category=linear`` once (returns all
+    linear perp tickers in a single response, no pagination needed) and
+    inserts one row per known perp into ``bybit_predicted_funding``. All
+    rows in a single call share the same ``observed_at`` timestamp (now UTC),
+    so a double invocation within the same second is a no-op thanks to the
+    primary-key conflict.
+
+    Only symbols present in ``bybit_perp_instruments`` are accepted -- the
+    tickers endpoint occasionally includes non-perp contracts that cannot
+    be safely converted with ``bybit_perp_to_ccxt``.
+
+    Returns:
+        Number of rows inserted (duplicates skipped via ON CONFLICT).
+    """
+    # Build the raw -> ccxt symbol map and per-symbol quote/settle from the
+    # DB so bybit_perp_to_ccxt gets the correct coins for odd contracts.
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT bybit_symbol, symbol, quote, settle "
+            "FROM bybit_perp_instruments"
+        )
+        instrument_rows = cur.fetchall()
+    known: dict[str, tuple[str, str, str]] = {
+        r[0]: (r[1], r[2], r[3]) for r in instrument_rows
+    }
+
+    result = bybit_get("/v5/market/tickers", {"category": "linear"})
+    items = result.get("list") or []
+
+    # Truncate to whole seconds so two invocations within the same second
+    # collide on the PK and no-op via ON CONFLICT DO NOTHING.
+    observed_at = datetime.now(tz=timezone.utc).replace(microsecond=0)
+    tuples: list[tuple] = []
+    skipped_unknown = 0
+    skipped_invalid = 0
+    for it in items:
+        bybit_sym = it.get("symbol")
+        if not bybit_sym or bybit_sym not in known:
+            skipped_unknown += 1
+            continue
+        ccxt_sym, _quote, _settle = known[bybit_sym]
+
+        next_ft_raw = it.get("nextFundingTime")
+        rate_raw = it.get("fundingRate")
+        if not next_ft_raw or rate_raw in (None, "", "null"):
+            skipped_invalid += 1
+            continue
+        try:
+            next_ft_ms = int(next_ft_raw)
+        except (TypeError, ValueError):
+            skipped_invalid += 1
+            continue
+        if next_ft_ms <= 0:
+            # Bybit occasionally returns bogus records with timestamp 0; skip.
+            logger.warning(
+                "skipping predicted funding with invalid nextFundingTime for %s",
+                ccxt_sym,
+            )
+            skipped_invalid += 1
+            continue
+        try:
+            predicted_rate = Decimal(str(rate_raw))
+        except Exception:  # noqa: BLE001
+            skipped_invalid += 1
+            continue
+
+        next_funding_time = datetime.fromtimestamp(
+            next_ft_ms / 1000.0, tz=timezone.utc
+        )
+
+        mark_raw = it.get("markPrice")
+        index_raw = it.get("indexPrice")
+        mark_price = Decimal(str(mark_raw)) if mark_raw not in (None, "", "null") else None
+        index_price = (
+            Decimal(str(index_raw)) if index_raw not in (None, "", "null") else None
+        )
+
+        tuples.append(
+            (
+                ccxt_sym,
+                observed_at,
+                predicted_rate,
+                next_funding_time,
+                mark_price,
+                index_price,
+            )
+        )
+
+    if not tuples:
+        logger.info(
+            "predicted_funding: tickers=%d inserted=0 skipped_unknown=%d skipped_invalid=%d",
+            len(items),
+            skipped_unknown,
+            skipped_invalid,
+        )
+        return 0
+
+    with conn.cursor() as cur:
+        psycopg2.extras.execute_values(
+            cur,
+            PREDICTED_FUNDING_INSERT_SQL,
+            tuples,
+            page_size=max(len(tuples), 2000),
+        )
+        inserted = cur.rowcount
+    conn.commit()
+    logger.info(
+        "predicted_funding: tickers=%d candidates=%d inserted=%d "
+        "skipped_unknown=%d skipped_invalid=%d",
+        len(items),
+        len(tuples),
+        inserted,
+        skipped_unknown,
+        skipped_invalid,
+    )
     return inserted
 
 
